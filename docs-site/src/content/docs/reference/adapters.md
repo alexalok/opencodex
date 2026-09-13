@@ -422,6 +422,57 @@ bare `exec_command` and `shell_command` names are reserved for non-freeform shel
 bridges. Namespace a custom freeform tool that uses either name. These schema
 declarations do not grant approval or change execution policy.
 
+## `devin`
+
+**Targets:** Cognition's `exa.api_server_pb.ApiServerService/GetChatMessage` over HTTPS Connect
+streaming at `server.codeium.com`.
+**Auth:** Devin/Cognition API key from `provider.apiKey` or the forwarded authorization header.
+Login first tries to import the credential the installed Devin CLI already holds: `devin auth
+login` completes the CLI's own PKCE sign-in and writes a `devin-session-token` to its
+`credentials.toml`, which is the same credential `SeatManagementService.RegisterUser` mints for a
+browser sign-in. When no usable CLI credential exists, login falls back to Auth0 browser sign-in
+and exchanges the pasted token via `RegisterUser` for a long-lived API key. `devin-cli` survives
+only as a deprecated alias — `ocx login devin-cli` still routes to `devin`, and a saved
+configuration that names the old id is rewritten at startup.
+
+- Uses `runTurn` rather than the ordinary fetch/parse path. Requests and server events are encoded
+  with manual protobuf framing in `devin/cloud-direct/wire.ts`; the ordinary `buildRequest` /
+  `parseStream` path is disabled.
+- Live model discovery via `GetCascadeModelConfigs`; the static seed is filtered against the
+  account's live roster so models not on the plan drop out instead of failing at request time.
+- Tool definitions are encoded in the request and tool-call events are decoded from the response
+  stream. Cognition enforces a per-tool-description length limit (6,998 chars) and an exact-phrase
+  blocklist; the adapter sanitizes known triggers and truncates over-long descriptions before
+  encoding.
+- Devin/Cognition API keys do not refresh. Run `ocx login devin` again when the key expires or is
+  revoked.
+- Only the credential is local when the CLI import path is used. The turn itself goes to
+  Cognition either way, so the import and browser login paths differ in nothing but where the
+  credential came from. Install the CLI with
+  `curl -fsSL https://cli.devin.ai/install.sh | bash` or `brew install --cask devin-cli`, run
+  `devin auth login` once, then add the provider.
+- An earlier build shipped a second adapter under the id `devin-cli` that ran the turn as an
+  Agent Client Protocol session against a local `devin acp` child process. It is gone. A saved
+  configuration that still names that adapter is rewritten to `devin` at startup, including a
+  custom-named row such as `"devin-acp"`.
+- The chat request is calibrated, not guessed. Three things gate it together: the credential is the
+  session token doubled and dash-joined in an `Authorization: Basic` header while the protobuf body
+  keeps one copy, the request envelope goes up uncompressed, and `Metadata` #31 carries a
+  732-character device fingerprint whose length — not value — the service checks. Inside
+  `CompletionConfiguration`, #2 is the output cap and #3 is the context window; swapping those two
+  makes every turn fail with an opaque `invalid_argument`. A temperature of exactly 0 is refused, so
+  it is clamped to the smallest accepted value.
+- Experimental unofficial bridge; not shown in the dashboard preset by default. See the
+  [provider guide](/guides/providers/) for login instructions.
+
+For SWE-2, an explicit reasoning effort overrides an effort suffix in the model
+id. For example, `swe-2-high` with `medium` selects the native `swe-2-medium` UID;
+`xhigh`, `ultra`, and `max` select `swe-2-max`. Values below Medium select Medium
+and do not disable SWE-2 reasoning. Without an explicit effort, a suffixed model
+id is preserved. This applies through the shared adapter to every Devin account,
+whichever login path minted the credential; other model families keep their
+existing suffix precedence.
+
 ## `azure-openai` (alias: `azure`)
 
 **Targets:** **Azure OpenAI**. Wraps `openai-responses` (so also `passthrough: true`).

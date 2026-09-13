@@ -41,10 +41,12 @@ Usage:
   ocx tray <sub>              Windows status tray (install|start|stop|status|uninstall)
   ocx ensure                  Ensure the proxy is running and Codex config/cache are current
   ocx connect <url>           Connect this machine to a remote OpenCodex hub (credential via stdin)
+  ocx remote-workspace <sub>  Pair/run an OCX-only remote execution computer
   ocx disconnect              Restore local state and clear the hub connection
   ocx sync [--restart-codex]  Fetch models from providers and inject into Codex config
   ocx sync-cache [--restart-codex]
                               Refresh Codex's model cache from the active catalog
+  ocx catalog pull <https-url> Install a validated remote catalog and refresh the Codex cache
   ocx status                  Check proxy server status (on a hub: one block with its ports and token source)
   ocx doctor                  Diagnose environment/network issues (WSL, proxy, ChatGPT reachability)
   ocx doctor --reclaim-response-temps
@@ -52,7 +54,7 @@ Usage:
   ocx doctor --recover-zero-byte-coordinator --yes
                               Back up a proven zero-byte Codex coordinator after stopping the proxy
   ocx debug <scope>           provider/usage/injection/claude on|off|status|reset
-  ocx login <provider>        OAuth or API-key provider login
+  ocx login <provider>        OAuth or API-key provider login (ocx login codex for Codex/ChatGPT)
   ocx logout <provider>       Remove a stored OAuth login
   ocx gui [pair --origin <browser-origin> [--json]]
                               Open the dashboard or create a single-use remote pairing grant
@@ -81,7 +83,7 @@ Usage:
   ocx memory [--json]         Alias of ocx observe memory
   ocx api-key <sub>           Alias of ocx access key
   ocx access <sub>            External API keys and endpoint information
-  ocx export --client <id>    Print a client config wired to the running proxy (13 clients)
+  ocx export --client <id>    Print a client config wired to the running proxy (15 clients)
   ocx integration client <sub> Enable, disable, inspect or roll back a client integration
   ocx grok <sub>              Grok Build model selection and apply
   ocx system <sub>            Runtime settings, startup, sync, OpenCodex updates, and Codex CLI inspection

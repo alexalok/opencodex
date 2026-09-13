@@ -15,7 +15,8 @@ runs helper features around provider requests.
 | `proxy?` | `string` | — | Outbound HTTP(S) proxy URL, `${ENV_VAR}`, or `"auto"`. Applied to `HTTP_PROXY` / `HTTPS_PROXY` only when those variables are unset; loopback remains in `NO_PROXY`. `"auto"` reads the Windows system proxy (WinINET `ProxyEnable`/`ProxyServer`, `https=` then `http=` entry) once at process start and logs the host it chose. On other platforms, or when the system proxy is off, SOCKS-only, or unreadable, it uses direct egress and says so. PAC/WPAD and live proxy changes are not followed; restart the service after changing the system proxy. |
 | `noProxy?` | `string \| string[]` | — | Hosts that bypass `proxy`, merged with inherited `NO_PROXY` and loopback entries. A string may use comma-separated `NO_PROXY` syntax or `${ENV_VAR}`. |
 | `emptyCompletionRetry?` | `boolean` | `false` | Opt in to one identical Responses retry when a turn has no text or tool call, including a stream that ends before a terminal event. The retry may be billable. `OCX_EMPTY_COMPLETION_RETRY=0` disables it without changing config; combo and routed-compaction turns remain excluded. |
-| `stallTimeoutSec?` | `number` | `300` | Seconds without upstream data before `response.incomplete`. Minimum 1. |
+| `dropCodexSafetyBuffering?` | `boolean` | `false` | Remove optional client-facing hints from canonical Codex Responses passthrough: the two `x-codex-safety-buffering-enabled` / `x-codex-safety-buffering-faster-model` response headers, `response.metadata` events whose metadata type is `safety_buffering`, and top-level `safety_buffering` fields. Other headers, response data, policy refusals and failures are preserved. This does not disable provider safety enforcement or upstream buffering. Native `codex.response.metadata.headers` WebSocket metadata and `/responses/compact` are outside this filter. |
+| `stallTimeoutSec?` | `number` | `300` | Seconds without meaningful upstream progress (Responses and native Chat). Minimum 1. |
 | `oauthOpenBrowser?` | `boolean` | `true` | Whether a login may open a browser on the machine running the proxy. Absent and `true` both open, so an existing install is unchanged; only an explicit `false` declines. Decline when you need the authorization link in a different browser profile, or when the dashboard is not on the proxy's machine — the login still starts and the URL is still returned and displayed. `POST /api/oauth/login` and `POST /api/codex-auth/login` accept a per-request `openBrowser` boolean that overrides this, and the dashboard exposes the same choice beside the login button. Device-code flows never open a browser either way. |
 | `connectTimeoutMs?` | `number` | `200000` | Per-attempt DNS/TCP/TLS/final-header deadline; it ends before body generation. |
 | `shutdownTimeoutMs?` | `number` | `5000` | Graceful drain deadline before active turns are aborted. |
@@ -35,16 +36,19 @@ runs helper features around provider requests.
 | `visionSidecar?` | `OcxVisionSidecarConfig` | on when usable | Image-description sidecar options. |
 | `images?` | `OcxImagesConfig` | automatic OpenAI selection | Standalone Images relay options for Codex `image_gen`. |
 
-The canonical ChatGPT upstream WebSocket has a fixed 90-second response-prelude deadline,
-measured after sending the create frame. Quota and response-metadata control frames do not
-reset it; the first non-control Responses event ends it. This is not a total generation
-deadline, and neither `connectTimeoutMs` nor `stallTimeoutSec` retunes the 90 seconds
-themselves. That constant is only the WebSocket-specific upper bound: the exchange runs under
-the signal `connectTimeoutMs` (default 200s) aborts, and that abort cancels an already-sent
-create before the prelude timer can fire. A `connectTimeoutMs` below 90 seconds therefore
-ends the wait earlier, so the deadline a request actually gets is the shorter of the two. If
-either expires after sending, the stream fails without an HTTP resend, avoiding duplicate
-inference.
+While the canonical ChatGPT upstream WebSocket waits for the first Responses event after
+sending the create frame, it watches for liveness rather than a fixed deadline. When the socket
+supports protocol pings, the proxy pings it every 15 seconds. Any inbound frame — quota,
+response metadata, or a pong — resets a 90-second silence clock, so a socket without ping
+support still stays alive on its own frames, and only 90 seconds with nothing at all settles the request as an
+HTTP 504 with an `upstream_no_response` error. A slow but alive origin therefore waits for the
+client's own deadline or for `connectTimeoutMs` (default 200s), whichever comes first; a
+connect timeout that fires after the create frame was sent settles as the same 504. A socket
+that closes or errors before the first Responses event settles as an HTTP 502 with
+`upstream_closed_before_response`. These statuses are never retried inside the proxy — the
+frame may already be executing upstream, so the client applies its own retry policy exactly as
+it would when connected to the backend directly. Once the response has started, a later drop
+surfaces inside the stream as before. `stallTimeoutSec` is unrelated to this window.
 
 `noProxy` accepts either a comma-separated string or an array. Both forms add entries without
 replacing an inherited `NO_PROXY`:
@@ -61,6 +65,10 @@ If an older development build changed resume-history metadata before backup supp
 `ocx recover-history --legacy-openai --yes` to force native-provider recovery.
 It force-relabels every user-message `opencodex` row, including legitimate dedicated-provider
 history; review the full-scope warning in the lifecycle reference before running it.
+
+### Native Chat timeouts and completion
+
+Native Chat also uses `stallTimeoutSec` while waiting for upstream output. Nonempty text, reasoning, refusal, tool updates, and finish frames renew the allowance; keepalive comments, role-only frames, and usage alone do not. Waiting for a slow client to read pauses the allowance. A stall produces `upstream_stall_timeout`: an error frame for streaming clients, or HTTP 502 for non-streaming clients. Cancellation before a terminal result returns a cancellation error instead of a successful partial answer. Buffered Chat results accept both LF and CRLF SSE framing, including multiline data.
 
 ## Codex quota network diagnostics
 
@@ -507,7 +515,7 @@ an inactivity guard, not a total generation deadline.
 | --- | --- | --- | --- |
 | `enabled?` | `boolean` | on when usable | Master image-description switch. |
 | `backend?` | `"openai" \| "anthropic"` | auto | Explicit wins; unset prefers a usable stored Anthropic OAuth credential, else `openai`. |
-| `model?` | `string` | backend-dependent | `gpt-5.4-mini` for OpenAI or `claude-sonnet-5` for Anthropic. |
+| `model?` | `string` | backend-dependent | `gpt-5.6-luna` for OpenAI or `claude-sonnet-5` for Anthropic. |
 | `maxDescriptionsPerTurn?` | `number` | `8` | New description cache misses admitted per main turn. `0` disables calls; invalid values use default. |
 | `timeoutMs?` | `number` | `45000` | Sidecar fetch timeout. Integer 1–2147483647. |
 

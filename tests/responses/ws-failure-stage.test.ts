@@ -3,7 +3,10 @@ import {
   classifyCodexWsFailure,
   closedBeforeTerminalMessage,
   codexWsFailureDetail,
+  markCodexWsStage,
+  readCodexWsStage,
   type CodexWsFailureStage,
+  type CodexWsStageRecord,
 } from "../../src/server/responses/codex-ws-wire";
 import {
   codexWsUpstreamFetch,
@@ -86,6 +89,8 @@ function stage(overrides: Partial<CodexWsFailureStage> = {}): CodexWsFailureStag
     relayedEvents: 0,
     firstFrameMs: null,
     elapsedMs: 90_003,
+    pings: 0,
+    pongs: 0,
     ...overrides,
   };
 }
@@ -98,6 +103,20 @@ async function failureMessage(script: (ws: FakeWebSocket) => void): Promise<stri
     noFallback as unknown as typeof fetch,
     BOUNDED_WS_RUNTIME,
   );
+  return failureMessageOf(response);
+}
+
+/**
+ * A failure before the first response event is an honest gateway status whose JSON body
+ * carries the message; a failure after the response started is still an errored 200 body.
+ * Both shapes carry the same stage detail, which is what these cases read.
+ */
+async function failureMessageOf(response: Response): Promise<string> {
+  if (response.status >= 500) {
+    const body = await response.json() as { error?: { message?: unknown } };
+    if (typeof body.error?.message !== "string") throw new Error("expected a gateway failure body");
+    return body.error.message;
+  }
   try {
     await response.text();
   } catch (error) {
@@ -136,12 +155,14 @@ describe("codex WS failure classification", () => {
   test("renders every field, with n/a for the durations that do not exist yet", () => {
     expect(codexWsFailureDetail(stage({ upstreamFrames: 2, controlFrames: 2, firstFrameMs: 41 }))).toBe(
       " [cause=no-response-event request=812B sent=yes frames=2 control=2 relayed=0"
-      + " first-frame=41ms elapsed=90003ms]",
+      + " first-frame=41ms elapsed=90003ms pings=0 pongs=0]",
     );
     expect(codexWsFailureDetail(stage({ sent: false, elapsedMs: null }))).toBe(
       " [cause=before-send request=812B sent=no frames=0 control=0 relayed=0"
-      + " first-frame=n/a elapsed=n/a]",
+      + " first-frame=n/a elapsed=n/a pings=0 pongs=0]",
     );
+    // A peer that answered pings but never started a response is named as such.
+    expect(codexWsFailureDetail(stage({ upstreamFrames: 0, pings: 6, pongs: 6 }))).toContain(" pings=6 pongs=6]");
   });
 });
 
@@ -219,12 +240,103 @@ describe("codexWsUpstreamFetch failure reporting", () => {
       await opened.promise;
       jest.advanceTimersByTime(CODEX_WS_RESPONSE_PRELUDE_TIMEOUT_MS);
       const response = await pending;
-      await expect(response.text()).rejects.toThrow(
+      expect(response.status).toBe(504);
+      expect(await failureMessageOf(response)).toMatch(
         /prelude timed out \[cause=no-upstream-frame request=\d+B sent=yes frames=0 control=0 relayed=0/,
       );
     } finally {
       jest.useRealTimers();
     }
   });
+
+  test("the prelude-timeout response carries the stage as a durable record", async () => {
+    jest.useFakeTimers();
+    const opened = Promise.withResolvers<void>();
+    const noFallback = async () => {
+      throw new Error("fallback must not run after open");
+    };
+    try {
+      installFake(ws => { ws.emit("open", {}); opened.resolve(); });
+      const pending = codexWsUpstreamFetch(
+        CODEX_URL,
+        streamingInit(),
+        noFallback as unknown as typeof fetch,
+        BOUNDED_WS_RUNTIME,
+      );
+      await opened.promise;
+      jest.advanceTimersByTime(CODEX_WS_RESPONSE_PRELUDE_TIMEOUT_MS);
+      const response = await pending;
+      expect(response.status).toBe(504);
+      const stage = readCodexWsStage(response);
+      expect(stage).toBeDefined();
+      expect(stage?.upstreamFrames).toBe(0);
+      expect(stage?.firstFrameMs).toBeNull();
+      expect(stage?.closeCode).toBeNull();
+      expect(stage?.sent).toBe(true);
+      expect(stage?.requestBytes).toBeGreaterThan(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
 });
 
+describe("codex ws stage record marker (#4191)", () => {
+  const stage: CodexWsStageRecord = {
+    requestBytes: 1234,
+    sent: true,
+    upstreamFrames: 3,
+    controlFrames: 1,
+    relayedEvents: 2,
+    firstFrameMs: 42,
+    elapsedMs: 900,
+    pings: 1,
+    pongs: 1,
+    closeCode: 1006,
+    reused: false,
+    ocxVersion: "2.52.0",
+    bunVersion: "1.4.0",
+  };
+
+  test("mark/read round trip on the resolved Response", () => {
+    const response = new Response("ok");
+    expect(readCodexWsStage(response)).toBeUndefined();
+    markCodexWsStage(response, stage);
+    expect(readCodexWsStage(response)).toEqual(stage);
+  });
+
+  test("a committed exchange ends with the final counters on its stage record", async () => {
+    installFake(ws => {
+      ws.emit("open", {});
+      ws.emit("message", { data: JSON.stringify({ type: "response.created", response: { id: "r1" } }) });
+      ws.emit("message", { data: JSON.stringify({ type: "response.completed", response: { id: "r1" } }) });
+    });
+    const noFallback = async () => {
+      throw new Error("fallback must not run after open");
+    };
+    const response = await codexWsUpstreamFetch(
+      CODEX_URL,
+      streamingInit(),
+      noFallback as unknown as typeof fetch,
+      BOUNDED_WS_RUNTIME,
+    );
+    expect(response.status).toBe(200);
+    await response.text();
+    const stage = readCodexWsStage(response);
+    expect(stage).toBeDefined();
+    expect(stage?.requestBytes).toBeNull();
+    expect(stage?.closeCode).toBeNull();
+    expect(stage?.sent).toBe(true);
+    expect(stage?.relayedEvents).toBeGreaterThan(0);
+  });
+
+  test("the serialized record is numeric/boolean/semver only", () => {
+    const json = JSON.stringify(stage);
+    expect(json).not.toContain("reason");
+    expect(json).not.toMatch(/header|authorization|conversation|body/i);
+    for (const [key, value] of Object.entries(stage)) {
+      expect(["number", "boolean", "string", "object"]).toContain(typeof value);
+      if (typeof value === "string") expect(value.length).toBeLessThan(64);
+      expect(key).not.toContain("reason");
+    }
+  });
+});

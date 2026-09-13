@@ -302,8 +302,20 @@ const commandRunners: Record<string, CommandRunner> = {
     return Number(process.exitCode ?? 0);
   },
   login: async deps => {
+    const loginArgs = deps.args.slice(1);
+    // 'ocx login codex' is the command people type first, and until now it answered with
+    // the full provider wall because the Codex pool lives behind 'ocx account login'.
+    // Route the three Codex spellings to that flow instead of making the user discover
+    // a second noun. Everything else stays on the local OAuth/API-key path.
+    const { isCodexAccountLoginName, handleAccountAuthCommand } = await import("./account-auth");
+    if (isCodexAccountLoginName(loginArgs[0] ?? "")) {
+      // null means "unknown subcommand", which "login" never is; the coalesce exists because
+      // the shared signature serves callers that do pass an unknown one.
+      const code = await handleAccountAuthCommand("login", loginArgs, { findLiveProxy: deps.findLiveProxy });
+      return code ?? 1;
+    }
     const { handleLogin } = await import("../oauth/login-cli");
-    await handleLogin(deps.args[1]);
+    await handleLogin(loginArgs[0]);
     return 0;
   },
   logout: async deps => {
@@ -412,6 +424,7 @@ const commandRunners: Record<string, CommandRunner> = {
       // Explicit sync with the integration OFF still refreshes the catalog/cache
       // for side profiles that consume the proxy without injection.
       console.log(synced.message ?? "Codex integration is OFF; catalog refreshed, Codex config untouched.");
+      if (!synced.ok) code = 1;
     } else if (!synced.ok) {
       code = 1;
       console.error("Codex sync did not complete. Fix the reported Codex config issue and retry.");
@@ -440,7 +453,7 @@ const commandRunners: Record<string, CommandRunner> = {
             },
             config,
             port: live.port,
-          }, ["mcode", "pi", "raycast"]));
+          }, ["mcode", "pi", "raycast", "omo", "cline"]));
         } catch (error) {
           console.warn(`Client integrations were not refreshed: ${error instanceof Error ? error.message : String(error)}`);
         }
@@ -469,9 +482,17 @@ const commandRunners: Record<string, CommandRunner> = {
     const { handleConnectCommand } = await import("./connect");
     return await handleConnectCommand(deps.args.slice(1));
   },
+  "remote-workspace": async deps => {
+    const { runRemoteWorkspaceCommand } = await import("./remote-workspace");
+    return await runRemoteWorkspaceCommand(deps.args.slice(1));
+  },
   disconnect: async deps => {
     const { handleDisconnectCommand } = await import("./connect");
     return await handleDisconnectCommand(deps.args.slice(1));
+  },
+  catalog: async deps => {
+    const { handleCatalogCommand } = await import("./catalog");
+    return await handleCatalogCommand(deps.args.slice(1));
   },
   "sync-cache": async deps => {
     const cacheArgs = deps.args.slice(1);

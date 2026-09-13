@@ -1,3 +1,4 @@
+import { parseQuotaFailureCode, type QuotaFailureCode } from "../providers/quota-types";
 /**
  * Data-access layer for `ocx account` (issue #180) — live-proxy HTTP client and
  * per-family account readers. Kept separate from account.ts (command handlers)
@@ -26,6 +27,8 @@ export interface AccountRow {
   masked?: string;
   active: boolean;
   needsReauth?: boolean;
+  selectionExcludedReason?: "plan_excluded";
+  selectionExcludedPlan?: string;
   /** Registered credential that is still excluded from routing until validation completes. */
   validationPending?: boolean;
   /** Codex pool selection order, higher used earlier. Absent where ordering does not apply. */
@@ -34,6 +37,8 @@ export interface AccountRow {
   autoSwitchThresholdOverride?: number | null;
   quota?: CodexQuotaDto | null;
   quotaRefresh?: CodexQuotaRefreshOutcome;
+  quotaUnavailable?: boolean;
+  quotaFailure?: QuotaFailureCode;
   /**
    * Whether the pool is holding this account out of rotation.
    *
@@ -245,6 +250,8 @@ interface CodexAccountDto {
   plan?: string;
   isMain?: boolean;
   needsReauth?: boolean;
+  selectionExcludedReason?: "plan_excluded";
+  selectionExcludedPlan?: string;
   health?: { reason?: string };
   priority?: number;
   autoSwitchThresholdOverride?: number | null;
@@ -312,6 +319,10 @@ export async function fetchCodexRows(
     plan: a.plan,
     active: a.id === activeId,
     needsReauth: a.needsReauth,
+    ...(a.selectionExcludedReason === "plan_excluded" ? {
+      selectionExcludedReason: "plan_excluded" as const,
+      ...(typeof a.selectionExcludedPlan === "string" ? { selectionExcludedPlan: a.selectionExcludedPlan } : {}),
+    } : {}),
     ...(a.health?.reason === "validation_pending" ? { validationPending: true } : {}),
     priority: typeof a.priority === "number" ? a.priority : 0,
     autoSwitchThresholdOverride: typeof a.autoSwitchThresholdOverride === "number"
@@ -336,6 +347,7 @@ interface OAuthAccountDto {
   plan?: string | null;
   quota?: CodexQuotaDto | null;
   quotaUnavailable?: boolean;
+  quotaFailure?: unknown;
 }
 
 async function fetchOAuthRows(
@@ -369,6 +381,8 @@ async function fetchOAuthRows(
     plan: a.plan ?? null,
     ...(a.quota !== undefined ? { quota: a.quota } : {}),
     ...(a.quotaUnavailable !== undefined ? { quotaUnavailable: a.quotaUnavailable } : {}),
+    ...(a.quotaUnavailable === true && parseQuotaFailureCode(a.quotaFailure)
+      ? { quotaFailure: parseQuotaFailureCode(a.quotaFailure) } : {}),
   }));
   return { rows, activeId, status: 200 };
 }

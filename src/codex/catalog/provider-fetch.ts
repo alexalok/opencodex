@@ -54,6 +54,7 @@ import { fetchCursorUsableModels } from "../../adapters/cursor/live-models";
 import { recordLiveCursorClaudeModels, recordLiveCursorMaxModeModels } from "../../adapters/cursor/catalog";
 import { fetchQoderModels } from "../../adapters/qoder/live-models";
 import { resolveQoderProfile } from "../../adapters/qoder/profiles";
+import { fetchDevinUsableModels } from "../../adapters/devin/live-models";
 import { isCanonicalOpenAiForwardProvider, OPENAI_API_PROVIDER_ID, OPENAI_CODEX_PROVIDER_ID } from "../../providers/openai-tiers";
 import {
   COMBO_NAMESPACE,
@@ -599,6 +600,7 @@ function providerCatalogFingerprint(name: string, prov: OcxProviderConfig): Reco
     maxOut: prov.modelMaxOutputTokens ?? null,
     autoCompact: prov.modelAutoCompactTokenLimits ?? null,
     inMod: prov.modelInputModalities ?? null,
+    capabilities: prov.modelCapabilities ?? null,
     re: prov.modelReasoningEfforts ?? null,
     defRe: prov.modelDefaultReasoningEfforts ?? null,
     rsSum: prov.modelSupportsReasoningSummaries ?? null,
@@ -672,7 +674,9 @@ export function configuredContextWindow(prov: OcxProviderConfig, id: string): nu
 }
 
 export function configuredInputModalities(prov: OcxProviderConfig, id: string): string[] | undefined {
-  const modalities = modelRecordValue(prov.modelInputModalities, id);
+  const declared = Object.hasOwn(prov.modelCapabilities ?? {}, id)
+    ? prov.modelCapabilities?.[id]?.inputModalities : undefined;
+  const modalities = declared ?? modelRecordValue(prov.modelInputModalities, id);
   return Array.isArray(modalities) && modalities.length > 0 ? [...modalities] : undefined;
 }
 
@@ -1699,6 +1703,68 @@ async function fetchProviderModelsWithAuth(
       stale ? applyConfigHintsToCachedModels(name, prov, stale, contextCap, metadataModelIdCaseFold, captured.effectiveAlias) : configured,
     ), "degraded");
   }
+  if (prov.adapter === "devin") {
+    if (!apiKey) return observed(configured, "degraded");
+    const cachedDevin = getFreshCached(name, ttlMs);
+    if (cachedDevin) {
+      return observed(
+        withConfiguredRetention(applyConfigHintsToCachedModels(name, prov, cachedDevin)),
+        "authoritative",
+      );
+    }
+    if (isModelsFetchCoolingDown(name)) {
+      const cooling = getStaleCached(name);
+      return observed(
+        withConfiguredRetention(
+          cooling ? applyConfigHintsToCachedModels(name, prov, cooling) : configured,
+        ),
+        "degraded",
+      );
+    }
+    const liveResult = await fetchDevinUsableModels({ apiKey, baseUrl: prov.baseUrl });
+    if (liveResult.ok) {
+      // Live catalog is the source of truth — use the discovered base models
+      // directly, not a filtered subset of the static seed.
+      //
+      // That extends to the context window. Cognition publishes no window
+      // anywhere, so the per-account catalog is the only first-party number,
+      // and the shipped static table is a degraded-mode guess that was wrong
+      // for nine of its eleven rows. The live value is applied first and the
+      // config hints run after it, so an explicit per-model override and an
+      // enabled Context cap still win — this only replaces the number nobody
+      // chose.
+      const result = liveResult.models.map((id) => {
+        const liveWindow = liveResult.contextWindows[id];
+        return {
+          id,
+          provider: name,
+          ...(liveWindow ? { contextWindow: liveWindow } : {}),
+          // The account catalog names the effort variants each base model has, so
+          // its ladder is measured rather than assumed. Without this the entry
+          // inherits the generic routed ladder and offers rungs the model rounds
+          // away, and every client that keys an effort control off this field —
+          // the Pi-shaped exports — renders no control at all.
+          ...(liveResult.efforts[id]?.length ? { reasoningEfforts: liveResult.efforts[id] } : {}),
+          ...catalogHintsFromProviderConfig(name, prov, id, contextCap, metadataModelIdCaseFold, captured.effectiveAlias),
+        } as CatalogModel;
+      });
+      const forCache = withConfiguredRetention(result, { retainComboTargets: false });
+      if (!setCached(name, forCache, Date.now(), cacheGeneration)) {
+        return observed(withConfiguredRetention(configured), "degraded");
+      }
+      markProviderDiscoveryOk(name, liveResult.models.length);
+      return observed(withConfiguredRetention(forCache), "authoritative");
+    }
+    if (isCurrentCacheGeneration()) {
+      markModelsFetchFailure(name);
+      markProviderDiscoveryFailed(name, { reason: liveResult.error === "auth" ? "provider" : "invalid_response" });
+    }
+    const stale = getStaleCached(name);
+    return observed(
+      withConfiguredRetention(stale ? applyConfigHintsToCachedModels(name, prov, stale) : configured),
+      "degraded",
+    );
+  }
   if (prov.adapter === "cursor") {
     if (!apiKey) return observed(configured, "degraded");
     // Cursor uses a bespoke GetUsableModels RPC (not /models), returning the full effort-suffixed
@@ -2255,7 +2321,7 @@ async function gatherRoutedModelsWithAuth(
   return models;
 }
 
-/** Bound a proven Codex-forward custom row without changing its stored configuration. */
+/** Bound a custom row whose model id has pinned native Codex metadata, without changing stored configuration. */
 function boundCustomNativeReasoning(
   model: CatalogModel,
   allowed: readonly string[],
@@ -2559,8 +2625,8 @@ async function gatherRoutedModelsUncached(
         : {}),
       // Explicit custom-row ladder wins over the inherited provider row below: the merge only
       // gap-fills, so a stored `[]` (explicit "no reasoning") or a declared ladder is kept
-      // instead of being replaced by that row's metadata. Only proven native aliases are
-      // bounded against their own capability source after the merge.
+      // instead of being replaced by that row's metadata. Capability-backed native model ids
+      // are bounded against their own pinned ladder after the merge, including gateways.
       ...(Array.isArray(cm.reasoningEfforts) ? { reasoningEfforts: [...cm.reasoningEfforts] } : {}),
       ...(cm.defaultReasoningEffort ? { defaultReasoningEffort: cm.defaultReasoningEffort } : {}),
       ...(typeof supportsServiceTier === "boolean" ? { supportsServiceTier } : {}),
@@ -2613,8 +2679,16 @@ async function gatherRoutedModelsUncached(
       ...(base.codexToolMode === undefined && replaced.codexToolMode !== undefined ? { codexToolMode: replaced.codexToolMode } : {}),
       ...(base.capabilities === undefined && replaced.capabilities !== undefined ? { capabilities: replaced.capabilities } : {}),
     } : base;
-    const reasoningBounded = codexForwardNativeCapabilityAlias
-      ? boundCustomNativeReasoning(merged, nativeReasoningEfforts(cm.modelId), nativeAliasDefaultEffort)
+    // Catalog-advertised efforts are bounded whenever the model id is a pinned native
+    // slug. Desktop validates that id, so a gateway such as YYLJ/gpt-6-astra still cannot
+    // advertise none/minimal. Full native identity stays behind the alias predicate.
+    const nativeEffortSource = hasNativeOpenAiCapabilityMetadata(cm.modelId);
+    const reasoningBounded = nativeEffortSource
+      ? boundCustomNativeReasoning(
+        merged,
+        nativeReasoningEfforts(cm.modelId),
+        nativeAliasDefaultEffort ?? nativeDefaultReasoningEffort(cm.modelId),
+      )
       : merged;
     // Vision-sidecar coverage only: when the enriched provider's shared predicate matches
     // noVisionModels or text-without-image modelInputModalities, advertise image input so the

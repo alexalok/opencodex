@@ -1,3 +1,4 @@
+import { capturePoolQuotaWriter } from "../../codex/account-store";
 import type { Server } from "bun";
 import { bridgeToResponsesSSE, buildResponseJSON, formatErrorResponse, type ResponsesTerminalStatus } from "../../bridge";
 import {
@@ -111,7 +112,7 @@ import {
   UnsupportedContentEncodingError,
 } from "../request-decompress";
 import { resolveAdapter, resolveWireProtocolOverride } from "../adapter-resolve";
-import { hasKeyPoolFailover, rotateProviderTransportOn429 } from "../../providers/key-failover";
+import { hasKeyPoolFailover, rotateProviderTransportOn429, selectProactiveApiKeyTransport } from "../../providers/key-failover";
 import { shouldAttemptImageTierRetry } from "../image-retry";
 import { resolveProviderTransport } from "../../providers/xai-transport";
 import type { WsData } from "../ws-bridge";
@@ -356,6 +357,7 @@ async function refreshPoolCompactContext(args: {
       accessToken: refreshed.accessToken,
       chatgptAccountId: refreshed.chatgptAccountId,
       generation: refreshed.generation,
+      poolQuotaWriter: capturePoolQuotaWriter(authCtx.accountId, refreshed),
     };
     const refreshedProvider = applyCodexAuthContextToProvider(
       stripCodexRuntimeProviderFields(provider),
@@ -743,6 +745,13 @@ export async function handleResponsesCompact(
       ? CODEX_FORWARD_BASE_URL
       : (compactProvider.baseUrl ?? "").replace(/\/+$/, "");
     if (compactProvider.authMode !== "forward" && compactProvider.apiKey) {
+      // Native compact never enters handleResponses, so it needs its own pre-dispatch key
+      // pick. Kept inside this branch on purpose: the overlay above owns the forward and
+      // codexAccountMode cases, and the picker returns null for them anyway.
+      // Transport variant, for the same reason as the Responses core: the persisted row has no
+      // registry backfills, and compactProvider is read for its transport fields below.
+      const warmKeyProvider = selectProactiveApiKeyTransport(config, route.providerName, compactProvider);
+      if (warmKeyProvider?.apiKey) compactProvider = warmKeyProvider;
       headers.set("authorization", `Bearer ${resolveProviderApiKey(compactProvider.apiKey)}`);
     }
     const { reasoning: _reasoning, ...compactBodyRaw } = raw as typeof raw & { reasoning?: unknown };
@@ -1030,7 +1039,7 @@ export async function handleResponsesCompact(
             upstream.headers,
             authCtx.writerGeneration,
             authCtx.kind === "main-pool" ? authCtx.mainQuotaWriter : undefined,
-            { modelId: route.modelId },
+            { modelId: route.modelId, poolWriter: authCtx.kind === "pool" ? authCtx.poolQuotaWriter : undefined },
           );
         }
         recordCompactPoolOutcome(authCtx, upstream.status, {
@@ -1070,6 +1079,12 @@ export async function handleResponsesCompact(
           return formatErrorResponse(502, "upstream_error", "Failed to connect to compact upstream");
         }
       }
+    }
+    // Capture the final serving account as well as an earlier rejected account, once per response.
+    if (outcomeCtx.kind === "pool") {
+      const { applyAccountQuotaFromUpstreamHeaders } = await import("../../codex/quota");
+      applyAccountQuotaFromUpstreamHeaders(outcomeCtx.accountId, upstream.headers, outcomeCtx.writerGeneration,
+        undefined, { modelId: route.modelId, poolWriter: outcomeCtx.poolQuotaWriter });
     }
     const retryAfter = upstream.headers.get("retry-after");
     const resetAt = [
