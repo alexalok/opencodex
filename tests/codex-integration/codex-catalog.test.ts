@@ -7036,7 +7036,7 @@ describe("native slug allowlist", () => {
       { slug: "gpt-5.4-mini", visibility: "list" },
       { slug: "gpt-5.3-codex", visibility: "list" },
       { slug: "gpt-5.2", visibility: "list" },
-      { slug: "codex-auto-review", visibility: "list" },
+      { slug: "codex-auto-review", visibility: "hide" },
       { slug: "gpt-5.3-codex-spark", visibility: "list" },
       { slug: "anthropic/claude-opus-4-8", visibility: "list" },
       { slug: "gpt-5.5", visibility: "hidden" },

@@ -517,6 +517,9 @@ function writeRetainedCatalogSync({
     openaiContextCap,
     nativeDisplayNames: config.providers[OPENAI_CODEX_PROVIDER_ID]?.modelDisplayNames,
     nativeMultiAgentDefaults: nativePinBaseline,
+    // Codex's own models cache is the freshest upstream observation of the hidden reviewer row;
+    // the installed/bundled catalog follows. The merge adds its own inputs and the pin after these.
+    controlPlaneHelperSources: [read.modelsCache?.models ?? [], catalog.models ?? []],
     policy: {
       ...CANONICAL_NATIVE_CATALOG_CONTENT_POLICY,
       nativeBackfillSlugs: [...availableBareNativeSlugs, ...observedNativeSlugs],

@@ -41,6 +41,7 @@ import { CODEX_NATIVE_ALIAS_CATALOG_KIND } from "./kinds";
 import { RESERVE_METADATA_SOURCE_FIELD } from "./reserve";
 import {
   ACCOUNT_GATED_NATIVE_OPENAI_MODELS,
+  CODEX_CONTROL_PLANE_HELPER_MODELS,
   NATIVE_DAYBREAK_BLUE_MODEL,
   NATIVE_GPT6_ASTRA_MODEL,
   NATIVE_RESERVE_MODEL,
@@ -113,6 +114,8 @@ export function isNativeAliasCatalogEntry(entry: RawEntry): boolean {
 export function isUnsupportedOpenAiNativeSlug(slug: string): boolean {
   if (slug.includes("/")) return false;
   if (SUPPORTED_NATIVE_OPENAI_SLUGS.has(slug)) return false;
+  // Hidden control-plane helpers are kept, but projected by their own writer path, never listed.
+  if (CODEX_CONTROL_PLANE_HELPER_MODELS.has(slug)) return false;
   return /^(?:gpt|codex)-/.test(slug);
 }
 

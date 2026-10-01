@@ -221,7 +221,8 @@ describe("Reserve catalog metadata is not permission", () => {
     const first = merge(build());
     expect(merge(build(config(), first), { catalogModels: first })).toEqual(first);
     const off = merge(build(config({ codexDesktopAuthless: false })), { catalogModels: first });
-    expect(off.map(row => row.slug)).toEqual(["external/model"]);
+    // The hidden Guardian reviewer rides with native OpenAI, not with the Reserve opt-in.
+    expect(off.map(row => row.slug)).toEqual(["external/model", "codex-auto-review"]);
     for (const disabled of ["personal/gpt-reserve", "gpt-reserve"]) {
       const result = merge(build(), { disabledModels: new Set([disabled]) });
       expect(result.find(isReserveCatalogProjection)?.visibility).toBe("hide");
@@ -249,7 +250,7 @@ describe("Reserve catalog metadata is not permission", () => {
     const before = [...rows];
     const diagnostic = clampCatalogModelsToObservedCodexSupport(rows, new Set(["medium"]));
     expect(rows).not.toEqual(before);
-    expect(rows.map(row => row.slug)).toEqual(["external/model"]);
+    expect(rows.map(row => row.slug)).toEqual(["external/model", "codex-auto-review"]);
     expect(diagnostic.affectedModels).toContain("personal/gpt-reserve");
     expect(diagnostic.removedEfforts).toContain("xhigh");
   });

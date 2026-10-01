@@ -5,6 +5,7 @@ import { canonicalAutoReviewModelKey, isValidAutoReviewModel as isValidAutoRevie
 import { readConfiguredAutoReviewModel } from "./parsing";
 import type { RawEntry } from "./parsing";
 import { configuredCatalogEntry } from "./subagent-roster";
+import { isCodexControlPlaneHelperSlug } from "./control-plane-helpers";
 
 const AUTO_REVIEW_ROOT_MARKER = "opencodex_auto_review_root";
 
@@ -239,7 +240,9 @@ export function applyAutoReviewModelOverride(
     return "unresolved";
   }
   for (const entry of models) {
-    if (entry && typeof entry === "object") {
+    // The hidden reviewer row is the reviewer, not a parent: Guardian reads the override from the
+    // PARENT row only, so a root stamp here would describe nothing and is never written.
+    if (entry && typeof entry === "object" && !isCodexControlPlaneHelperSlug(entry.slug)) {
       stampRootAutoReviewOverride(entry, trimmed);
     }
   }
@@ -427,7 +430,7 @@ function applyRootSelectorToRemaining(
     return "unresolved";
   }
   for (const entry of models) {
-    if (!entry || providerStamped.has(entry)) continue;
+    if (!entry || providerStamped.has(entry) || isCodexControlPlaneHelperSlug(entry.slug)) continue;
     stampRootAutoReviewOverride(entry, trimmed);
   }
   return "applied";

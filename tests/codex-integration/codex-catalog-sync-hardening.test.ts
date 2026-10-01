@@ -119,7 +119,7 @@ describe("Codex catalog sync hardening", () => {
     if (existsSync(opencodexHome)) removeTreeWithRetry(opencodexHome);
   });
 
-  test("Gap B: drops legacy and unentitled account-gated natives but keeps supported + user natives", () => {
+  test("Gap B: drops legacy and unentitled account-gated natives but keeps supported + user natives + hidden helper", () => {
     const catalogPath = join(codexHome, "catalog.json");
     writeFileSync(join(codexHome, "config.toml"), 'model_catalog_json = "catalog.json"\n', "utf8");
     writeFileSync(catalogPath, JSON.stringify({
@@ -133,7 +133,7 @@ describe("Codex catalog sync hardening", () => {
         nativeEntry("gpt-5.6-luna", 6),
         nativeEntry("gpt-5.3-codex", 104),   // legacy -> drop
         nativeEntry("gpt-5.2", 104),          // legacy -> drop
-        nativeEntry("codex-auto-review", 104),// legacy -> drop
+        nativeEntry("codex-auto-review", 104),// hidden helper -> keep, visibility hide
         nativeEntry("user-native", 10),       // user-added -> keep
       ],
     }, null, 2) + "\n");
@@ -144,7 +144,8 @@ describe("Codex catalog sync hardening", () => {
     `);
     expect(r.status).toBe(0);
 
-    const slugs = (JSON.parse(readFileSync(catalogPath, "utf8")).models as Array<{ slug: string }>).map(m => m.slug);
+    const models = JSON.parse(readFileSync(catalogPath, "utf8")).models as Array<{ slug: string; visibility?: string }>;
+    const slugs = models.map(m => m.slug);
     expect(slugs).toContain("gpt-5.5");
     // Retired from NATIVE_OPENAI_MODELS. A pinned upstream snapshot row is not catalog
     // membership, so these drop with the other unsupported gpt-/codex- natives.
@@ -164,7 +165,8 @@ describe("Codex catalog sync hardening", () => {
     expect(slugs).toContain("user-native");           // genuine user native preserved
     expect(slugs).not.toContain("gpt-5.3-codex");      // legacy dropped
     expect(slugs).not.toContain("gpt-5.2");            // legacy dropped
-    expect(slugs).not.toContain("codex-auto-review");  // legacy dropped
+    // Guardian's default reviewer: an exact control-plane helper, kept once and never listed.
+    expect(models.filter(m => m.slug === "codex-auto-review").map(m => m.visibility)).toEqual(["hide"]);
   });
 
   test.each(["bare-cache", "account-cache", "account-catalog"])(

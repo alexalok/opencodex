@@ -43,6 +43,7 @@ import {
 } from "./aggregation";
 import { accountBoundNativeDisplayName, CODEX_ACCOUNT_BOUND_CATALOG_KIND, trustedAccountBoundNativeCatalogSlug } from "./account-models";
 import { NATIVE_RESERVE_MODEL } from "./native-models";
+import { isCodexControlPlaneHelperSlug, resolveCodexControlPlaneHelperEntries } from "./control-plane-helpers";
 import { isReserveCatalogProjection, type ReserveCatalogProjection } from "./reserve";
 import { deriveEntry, finishUpstreamNativeEntry, isExactComboCatalogEntry } from "./derive-entry";
 import { PICKER_ORDER_PRIORITY_BASE, SPAWN_PRIORITY_FIELD } from "./subagent-roster";
@@ -498,6 +499,11 @@ export interface ObservedCatalogMergeInput {
   readonly nativeDisplayNames?: Readonly<Record<string, string>>;
   /** Pristine installed-catalog multi-agent pins; see MultiAgentModeOptions.nativeDefaults. */
   readonly nativeMultiAgentDefaults?: ReadonlyMap<string, string | null>;
+  /**
+   * Preferred sources for hidden control-plane helper rows (`codex-auto-review`), freshest first.
+   * The merge falls back to its own catalog/baseline inputs and then the pinned upstream snapshot.
+   */
+  readonly controlPlaneHelperSources?: readonly (readonly RawEntry[])[];
 }
 
 /**
@@ -535,6 +541,7 @@ export function mergeCatalogEntriesFromObservedState({
   openaiContextCap,
   nativeDisplayNames,
   nativeMultiAgentDefaults,
+  controlPlaneHelperSources = [],
 }: ObservedCatalogMergeInput): RawEntry[] {
   // Raw catalog rows contain nested arrays/objects that normalization mutates. Detach every row at
   // the observed-core boundary so callers can safely retain evidence objects or repeat the merge.
@@ -665,6 +672,8 @@ export function mergeCatalogEntriesFromObservedState({
     .filter(m => typeof m.slug === "string"
       && !(m.slug as string).includes("/")
       && m.owned_by !== COMBO_NAMESPACE
+      // Projected once, hidden and unmodified, after the picker pipeline below.
+      && !isCodexControlPlaneHelperSlug(m.slug)
       && (policy.unsupportedNativeEntries === "preserve"
         || policy.nativeBackfillSlugs.includes(m.slug as string)
         || !isUnsupportedOpenAiNativeSlug(m.slug as string)))
@@ -928,6 +937,27 @@ export function mergeCatalogEntriesFromObservedState({
     // byte-idempotent whether an owned row was freshly built or retained from the prior pass.
     delete entry.opencodex_catalog_kind;
     entry.opencodex_catalog_kind = kind;
+  }
+  // Hidden Codex control-plane helpers (codex-auto-review) stay outside the picker pipeline above:
+  // no mock ladder, multi-agent stamp, featured priority, picker order or display overlay may
+  // rewrite the upstream reviewer identity. They route like a bare native, so they are gated the
+  // same way, and a fresh bare combo alias owning the exact slug keeps precedence.
+  if (includeNativeOpenAi) {
+    const helpers = resolveCodexControlPlaneHelperEntries([
+      ...controlPlaneHelperSources,
+      detachedCatalogModels,
+      detachedBaselineCatalogModels,
+    ]);
+    for (const helper of helpers) {
+      if (freshBareComboAliases.has(helper.slug as string)) continue;
+      const e = ensureStrictCatalogFields(normalizeServiceTiers(helper));
+      if (wsEnabled) e.supports_websockets = true;
+      else {
+        delete e.supports_websockets;
+        delete e.prefer_websockets;
+      }
+      versionedEntries.push(e);
+    }
   }
   return versionedEntries;
 }

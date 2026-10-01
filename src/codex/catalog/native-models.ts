@@ -181,6 +181,29 @@ export const RETIRED_NATIVE_OPENAI_MODELS: ReadonlySet<string> = new Set([
   "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark",
 ]);
 
+/** Upstream id of the hidden reviewer Codex Guardian resolves under ChatGPT authentication. */
+export const CODEX_AUTO_REVIEW_MODEL = "codex-auto-review";
+
+/**
+ * Hidden Codex control-plane helper rows the canonical catalog must carry, never list.
+ *
+ * Codex reads `model_catalog_json` as a STATIC catalog: there is no remote `/models` merge and
+ * no models-cache fallback. Guardian (`approvals_reviewer = "auto_review"`) resolves its default
+ * reviewer by looking the provider's preferred id up in that catalog (codex-rs
+ * `select_review_model` / `resolve_review_model`); hidden rows are found because only the
+ * picker filters on visibility. Without the row it silently falls back to the PARENT model, which
+ * for a routed third-party model fails the review closed (upstream lidge-jun/opencodex#1225).
+ *
+ * This is an exact allowlist, not a widening of the `codex-` prefix rule. A helper is not a
+ * supported picker native: it stays out of `NATIVE_OPENAI_MODELS`, `SUPPORTED_NATIVE_OPENAI_SLUGS`,
+ * `UPSTREAM_NATIVE_ENTRIES`, account-selector projection and every picker/roster surface, and the
+ * catalog writer always emits it with `visibility: "hide"`. It must never name a retired slug;
+ * `tests/codex-integration/codex-auto-review-helper-row.test.ts` pins both sets disjoint.
+ */
+export const CODEX_CONTROL_PLANE_HELPER_MODELS: ReadonlySet<string> = new Set([
+  CODEX_AUTO_REVIEW_MODEL,
+]);
+
 /**
  * Natives that retain the physical main account as a read-free sentinel during a native-main
  * drain, instead of reading as unavailable and letting the subagent fallback chain advance.

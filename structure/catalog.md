@@ -48,6 +48,8 @@ provider-wide fallback. Exact model output limits precede the provider default o
   (`src/codex/data/upstream-models.json` — exact per-slug ladders: luna has no ultra);
 - excludes retired `gpt-5.3-codex-spark` from native fallback, observed/cache rows, and
   account-selector projections, including retained sync and native restore;
+- keeps exactly one hidden `codex-auto-review` control-plane helper row (see
+  [Hidden Codex reviewer row](#hidden-codex-reviewer-row));
 - upgrades either an observed selector-qualified `*/gpt-daybreak-blue-latest` account row or an
   explicitly configured canonical `openai/gpt-daybreak-blue-latest` Codex-forward row from the
   pinned Sol capability metadata while preserving its selector and Daybreak wire identity;
@@ -503,6 +505,27 @@ Live sideband admission and its bounded upstream handshake follow the [runtime c
 ## Provider-scoped approval reviewer
 
 `src/codex/catalog/auto-review.ts` resolves exact case-preserving provider/model reviewer selectors against the final catalog in both retained sync and `src/codex/convergence.ts`. Valid per-model selection wins over valid provider-wide selection, then the root selector supplies fallback. Native root stamps retain the observed original value and applied selector bound to their slug; removal restores the original only while the applied value is unchanged. The native provenance remains after restoration so an equal provider reviewer cannot trigger legacy reclassification on the next sync. Ambiguous legacy unmarked catalogs retain their existing heuristic cleanup. Provider stamps do not change routing or credentials.
+
+### Hidden Codex reviewer row
+
+Codex reads `model_catalog_json` as a static catalog, and Guardian (`approvals_reviewer = "auto_review"`)
+resolves its default reviewer only from that file: the parent row's `auto_review_model_override`,
+otherwise the provider's preferred id (`codex-auto-review` under ChatGPT auth). Hidden rows are found;
+an absent row silently falls back to the parent model, which fails the review closed for routed
+third-party models. `CODEX_CONTROL_PLANE_HELPER_MODELS` in `src/codex/catalog/native-models.ts` is
+the exact allowlist of such helpers; it widens neither the `codex-` legacy prefix rule nor
+`SUPPORTED_NATIVE_OPENAI_SLUGS`, and it is disjoint from the retired set.
+
+Both writers project one helper row through `src/codex/catalog/control-plane-helpers.ts` after the
+picker pipeline, so no mock ladder, multi-agent stamp, featured priority, picker order or display
+overlay touches it. The row comes from the first genuine upstream row in Codex's models cache, the
+installed/source catalog, the file being overwritten, or its backups, and otherwise from the pinned
+`src/codex/data/upstream-models.json` snapshot; OpenCodex-private fields are stripped and
+`visibility` is always `hide`. It is gated with the bare natives on a canonical OpenAI route, routes
+through `src/router.ts` to that provider, and never reaches `/v1/models`, dashboard rows, the
+subagent roster or account-selector projections. Root auto-review stamping skips the helper row:
+Guardian reads the override from the parent row only. A root or provider selector naming
+`codex-auto-review` now resolves against the final catalog.
 
 The [explicit model-capability contract](config.md#explicit-per-model-capability-declarations) preserves operator declarations through provider storage and catalog capture; it does not infer upstream capability or change this surface's routing behavior.
 

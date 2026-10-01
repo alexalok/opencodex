@@ -246,6 +246,7 @@ function prepareCatalog(
   modelEntitlements: CodexModelEntitlementSnapshot,
   nativeRecoverySources: readonly (readonly RawEntry[])[] = [],
   observedAccountNativeEntries: readonly RawEntry[] = [],
+  modelsCacheModels: readonly RawEntry[] = [],
 ): RawCatalog {
   const catalog = JSON.parse(JSON.stringify(source.catalog)) as RawCatalog;
   // Strict selector: an unknown bare row must never become the routed template (#2813).
@@ -378,6 +379,8 @@ function prepareCatalog(
     openaiContextCap,
     nativeDisplayNames: config.providers[OPENAI_CODEX_PROVIDER_ID]?.modelDisplayNames,
     nativeMultiAgentDefaults: nativeMultiAgentDefaults(baselineCatalogModels),
+    // Same helper-row source order as retained sync: models cache, then the admitted source catalog.
+    controlPlaneHelperSources: [modelsCacheModels, catalog.models ?? []],
     policy: {
       ...CANONICAL_NATIVE_CATALOG_CONTENT_POLICY,
       nativeBackfillSlugs: [...availableBareNativeSlugs, ...observedNativeSlugs],
@@ -493,6 +496,7 @@ export async function gatherCodexCatalogCandidate(
         ...(catalogFrom(activeBytes)?.models ?? []).filter(entry =>
           trustedAccountBoundNativeCatalogSlug(entry) !== undefined),
       ],
+      catalogFrom(cacheBytes)?.models ?? [],
     );
     const preparedCatalogBytes = catalogBytes(preparedCatalog);
     const preparedCacheBytes = `${JSON.stringify({
