@@ -305,6 +305,15 @@ no per-model override, so a valid provider-wide target remains its fallback. Any
 stamp keep the root selector, or normal upstream auto-review behavior when that is unset. The
 canonical `openai` provider does not accept these fields.
 
+Normal upstream behavior is Codex's default reviewer. Under ChatGPT sign-in Codex looks up the
+hidden `codex-auto-review` row in the catalog, and OpenCodex keeps exactly one such row on every
+sync: `visibility: "hide"`, absent from model pickers, `/v1/models` and the subagent roster, with
+metadata taken from Codex's models cache or installed catalog, or from OpenCodex's pinned upstream
+snapshot when neither has it. The reviewer is routed through the canonical `openai` provider; when
+no such provider is enabled the row is omitted and Codex reviews with the turn's own model. Root
+selectors are never stamped on the `codex-auto-review` row itself, and `codex-auto-review` is a
+valid selector target.
+
 Removing the root selector clears root stamps from every row, including native rows stamped by
 earlier releases that predate OpenCodex's provenance marker. That cleanup recognizes a legacy
 stamp by its shape — one value across the whole catalog that a routed row also carries — so a

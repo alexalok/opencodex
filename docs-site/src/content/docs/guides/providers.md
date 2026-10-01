@@ -1115,6 +1115,12 @@ no per-model override, leaving a valid provider-wide target as fallback. Whateve
 keep the root selector, or upstream behavior when that is unset. Removing the root selector leaves
 provider stamps alone, and removing a provider selector clears only that provider's stamps.
 
+With no selector at all, Codex uses its default reviewer, `codex-auto-review`, under ChatGPT
+sign-in. OpenCodex keeps that model in the catalog as a hidden row, so it never appears in a
+picker, and routes it through the `openai` provider. Set a selector when that default does not fit,
+for example when the canonical `openai` provider is disabled and reviews would otherwise run on the
+turn's own model.
+
 These fields are available through configuration, `PATCH /api/providers?name=<provider>`, and
 the dashboard raw JSON provider editor; dedicated form controls are not present. The canonical `openai` provider
 rejects them. Field-by-field rules live in the
