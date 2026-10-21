@@ -57,6 +57,13 @@ jobs:
       - name: Setup project Bun
         uses: ./.github/actions/setup-project-bun
 
+      - name: Setup pnpm for package assembly
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        with:
+          version: 11.1.2
+          standalone: true
+          run_install: false
+
       - name: Install frozen dependencies with release-age checks
         run: |
           bun install --frozen-lockfile --minimum-release-age 777600
@@ -78,7 +85,7 @@ jobs:
           bun run prepare:package
           git diff --exit-code -- package.json bun.lock gui/bun.lock src bin
           mkdir release-assets
-          bun pm pack --filename "release-assets/opencodex-${RELEASE_VERSION}-alexalok.tgz" --quiet
+          pnpm pack --out "release-assets/opencodex-${RELEASE_VERSION}-alexalok.tgz"
           python3 .github/scripts/fork_release.py package release-assets "$RELEASE_VERSION" "$EXPECTED_SHA"
           python3 .github/scripts/fork_release.py verify release-assets "$RELEASE_VERSION" "$EXPECTED_SHA"
 

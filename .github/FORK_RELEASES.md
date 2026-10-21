@@ -28,7 +28,9 @@ enter `version` and `expected-sha`, and leave **dry-run** checked first.
 The dry run installs the frozen Bun dependency graphs with the existing
 nine-day development dependency-age policy, performs type/security/structure
 checks, builds the dashboard, and uses the canonical package preparation
-command. It uploads a 14-day Actions artifact containing:
+command followed by pinned `pnpm pack`. pnpm only assembles the archive; the
+dependency graphs still come from the frozen Bun locks. It uploads a 14-day
+Actions artifact containing:
 
 - `opencodex-X.Y.Z-alexalok.tgz`
 - `provenance.json`, with the artifact filename, version, SHA-256, source
