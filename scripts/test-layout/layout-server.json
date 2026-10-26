@@ -1,0 +1,5 @@
+{
+  "server-search-admission.test.ts": "server",
+  "server-search.test.ts": "server",
+  "api-key-scope-alpha-search.test.ts": "server"
+}

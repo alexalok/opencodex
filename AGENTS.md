@@ -15,7 +15,7 @@ Bun-native TypeScript with no separate server compile step.
 - `tests/` — Bun tests in domain directories that mirror `src/`
   (`tests/<domain>/*.test.ts`; `providers/` and `adapters/` have one more
   level for the larger vendors). The explicit map is
-  `scripts/test-layout/layout.json`, with regex seeds and migration state in
+  `scripts/test-layout/layout.json` plus its `explicitShards` sibling maps, with regex seeds and migration state in
   `scripts/test-layout/seeds.json`; `tests/test-layout.test.ts` enforces that every file resolves to a
   domain and sits in it, and only the two layout guards live at the root.
   Shared helpers in `tests/helpers/`, fixtures in `tests/fixtures/`, broader
@@ -23,7 +23,7 @@ Bun-native TypeScript with no separate server compile step.
   through `tests/helpers/repo-root.ts` (`repoRoot()`, `repoPath()`,
   `helperPath()`, `fixturePath()`), never `import.meta.dir + "/.."`. A new
   test file lands in its domain directory and needs an entry in both
-  `layout.json` `explicit` and `tests/fixtures/test-layout-expected.json`
+  `layout.json` `explicit` (or its domain shard) and `tests/fixtures/test-layout-expected.json`
   (`tests/test-layout-tooling.test.ts` names the missing one); the regex
   seeds in `seeds.json` place a conventionally named file until then.
   History: `devlog/_fin/260905_test_modularization_and_windows/`.

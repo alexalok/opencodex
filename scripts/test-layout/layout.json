@@ -1,6 +1,7 @@
 {
   "version": 1,
   "root": "tests",
+  "explicitShards": ["layout-server.json"],
   "explicit": {
     "responses-anthropic-billing-send-budget.test.ts": "responses", "anthropic-billing-ownership.test.ts": "adapters/anthropic", "server-anthropic-billing.test.ts": "server", "server-anthropic-billing-boundaries.test.ts": "server", "router-anthropic-billing-failover.test.ts": "routing", "anthropic-billing-refusal.test.ts": "adapters/anthropic", "messages-request-id-headers.test.ts": "claude-integration",
     "messages-request-id-endpoint.test.ts": "claude-integration",
@@ -224,7 +225,6 @@
     "api-key-attribution.test.ts": "server",
     "api-key-catalog-authority.test.ts": "providers",
     "api-key-model-scope.test.ts": "server",
-    "api-key-scope-alpha-search.test.ts": "server",
     "api-key-scope-audio.test.ts": "server",
     "api-key-scope-images.test.ts": "server",
     "api-key-scope-live.test.ts": "server",
@@ -1680,8 +1680,6 @@
     "server-opencode-go-goal-streaming.test.ts": "server",
     "server-rate-limit-retry-e2e.test.ts": "server",
     "server-request-body-size.test.ts": "server",
-    "server-search-admission.test.ts": "server",
-    "server-search.test.ts": "server",
     "server-startup-reconcile-resilience.test.ts": "server",
     "server-stop-config-hardening.test.ts": "server",
     "server-xai-chat-reasoning-streaming.test.ts": "server",
