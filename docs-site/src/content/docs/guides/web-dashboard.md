@@ -30,10 +30,14 @@ they expire or the proxy restarts. Only a dashboard bound to a non-loopback host
 the admin token (`OPENCODEX_ADMIN_AUTH_TOKEN`, or the auto-generated
 `~/.opencodex/admin-api-token` file).
 
-When a remote dashboard needs that credential, it presents a standard password form so a browser
-password manager can offer to save and autofill it. The dashboard itself still keeps the token only
-in memory and does not write it to `localStorage` or `sessionStorage`; whether it is saved is entirely
-the browser or password manager's decision.
+Remote dashboards use a standard password form that supports browser password managers. After
+successful validation, the dashboard remembers the admin token in this browser's `localStorage`
+for 365 days. Reloading the page, reopening the browser, or restarting the proxy does not require
+entering it again. The expiry is fixed from sign-in and is not extended by normal use.
+
+Expired or rejected tokens and explicit sign-outs clear the saved login. Clearing this site's
+browser data also removes it. Short-lived GUI sessions remain in memory; if browser storage is
+unavailable, an admin-token login lasts only for the current page.
 
 ### Finding the admin token
 
