@@ -42,6 +42,15 @@ entry. `tests/server/api-key-scope-alpha-search.test.ts` covers the two unrouted
 
 ## Standalone Search and exact account selectors
 
+Search accepts a validated data-plane admission key in `Authorization: Bearer` as well as the
+dedicated admission header. `src/server/search.ts` passes the validated admission to the existing
+OpenAI sidecar resolver, which never forwards the proxy bearer and uses the selected stored Pool
+or exact-account credential instead. Direct forwarding still requires intentional caller-owned
+ChatGPT auth. Missing or unusable stored credentials fail without trying another paid backend.
+Key attribution and destination scopes retain the admitted key's identity; requests without a
+validated bearer admission retain the forwarding guard. `tests/server/server-search-admission.test.ts`
+covers HTTP admission, egress credential separation, scopes, attribution and exact selection.
+
 `POST /v1/alpha/search` retains the selected model in its request body. When that value is an
 account-qualified native selector, the server resolves the public namespace, uses only the mapped
 stored Codex credential, and sends the bare native model upstream. That exact path is fail-closed:
