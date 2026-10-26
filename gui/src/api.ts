@@ -1,6 +1,7 @@
 import { promptForAdminToken, type AdminTokenVerifier } from "./admin-token-dialog";
 import { createBoundedFetch, withFetchDeadline } from "./bounded-fetch";
 import { adminTokenPromptAllowed, standaloneApiTargets, type ApiPlane, type ApiTarget, type ApiTargets } from "./api-targets";
+import { forgetRememberedAdminToken, readRememberedAdminToken, rememberAdminToken } from "./remembered-admin-token";
 
 /**
  * Fired after an unauthorized request cannot recover a session. The shell synchronizes
@@ -22,6 +23,7 @@ const MACHINE_CSRF_HEADER = "X-OpenCodex-Machine-CSRF-Token";
 
 interface ApiSessionState {
   token: string | null;
+  adminTokenExpiresAt?: number;
   csrfToken: string | null;
   browserOrigin: string | null;
   serverOrigin: string | null;
@@ -138,7 +140,10 @@ function runtime(plane: ApiPlane): TargetRuntime {
 
 function clearSessionIfCurrent(plane: ApiPlane, expected: string | null): void {
   const state = runtime(plane);
-  if (!state.logoutBarrier && expected !== null && state.session.token === expected) invalidateSession(state);
+  if (!state.logoutBarrier && expected !== null && state.session.token === expected) {
+    forgetRememberedAdminToken(state.target, expected);
+    invalidateSession(state);
+  }
 }
 
 function storeSession(
@@ -178,8 +183,12 @@ export async function logoutApiSession(plane: ApiPlane): Promise<boolean> {
   sessionHandoffOwners.delete(state.session);
   if (!state.session.token?.startsWith("ocx_session_")) {
     // An explicit logout also supersedes recovery of an already-invalidated candidate.
+    const hadToken = state.session.token !== null;
+    forgetRememberedAdminToken(state.target);
     barrier.completed = true;
-    return false;
+    updateSession(state, blankSession());
+    state.promptCancelled = false;
+    return hadToken;
   }
   barrier.pending++;
   const bounded = createBoundedFetch(SESSION_REBOOTSTRAP_TIMEOUT_MS);
@@ -191,6 +200,7 @@ export async function logoutApiSession(plane: ApiPlane): Promise<boolean> {
     if (!response.ok) return false;
     barrier.completed = true;
     if (runtimes.get(plane) === state && state.logoutBarrier === barrier) {
+      forgetRememberedAdminToken(state.target);
       updateSession(state, blankSession());
       state.promptCancelled = false;
     }
@@ -384,11 +394,14 @@ export async function bootstrapApiSession(plane: ApiPlane, signal?: AbortSignal)
 async function verifyAdminToken(plane: ApiPlane, token: string): ReturnType<AdminTokenVerifier> {
   if (!rawFetch) return "unavailable";
   try {
-    const state = runtime(plane);
-    const [input, init] = withAuth(plane, `${state.target.baseUrl}${ADMIN_TOKEN_VALIDATION_PATH}`, { cache: "no-store" }, token);
-    const response = await rawFetch(input, init);
-    if (response.status === 401) return "rejected";
-    return response.ok ? "accepted" : "unavailable";
+    const send = rawFetch;
+    return await withFetchDeadline(SESSION_REBOOTSTRAP_TIMEOUT_MS, undefined, async signal => {
+      const state = runtime(plane);
+      const [input, init] = withAuth(plane, `${state.target.baseUrl}${ADMIN_TOKEN_VALIDATION_PATH}`, { cache: "no-store", signal }, token);
+      const response = await send(input, init);
+      if (response.status === 401) return "rejected";
+      return response.ok ? "accepted" : "unavailable";
+    });
   } catch { return "unavailable"; }
 }
 
@@ -421,14 +434,30 @@ async function resolveTokenAfter401(plane: ApiPlane, failedToken: string | null,
         state.promptCancelled = true;
         return sessionSnapshot(state);
       }
+      const remembered = readRememberedAdminToken(state.target);
+      if (remembered) {
+        const result = await verifyAdminToken(plane, remembered.token);
+        if (!isCurrentRecovery(recovery)) return null;
+        if (result === "accepted" && remembered.expiresAt > Date.now()) {
+          updateSession(state, { token: remembered.token, adminTokenExpiresAt: remembered.expiresAt,
+            csrfToken: null, browserOrigin: null, serverOrigin: state.target.serverOrigin }, recovery);
+          return isCurrentRecovery(recovery) ? sessionSnapshot(state) : null;
+        }
+        if (result === "unavailable") return sessionSnapshot(state);
+        forgetRememberedAdminToken(state.target, remembered.token);
+      }
+      let verifiedToken: string | null = null;
       const prompted = await requestAdminToken(async token => {
         if (!isCurrentRecovery(recovery)) return "unavailable";
         const result = await verifyAdminToken(plane, token);
+        if (isCurrentRecovery(recovery) && result === "accepted") verifiedToken = token;
         return isCurrentRecovery(recovery) ? result : "unavailable";
       });
       if (!isCurrentRecovery(recovery)) return null;
       if (prompted) {
-        updateSession(state, { token: prompted, csrfToken: null, browserOrigin: null, serverOrigin: state.target.serverOrigin }, recovery);
+        const saved = prompted === verifiedToken ? rememberAdminToken(state.target, prompted) : null;
+        updateSession(state, { token: prompted, adminTokenExpiresAt: saved?.expiresAt,
+          csrfToken: null, browserOrigin: null, serverOrigin: state.target.serverOrigin }, recovery);
         return isCurrentRecovery(recovery) ? sessionSnapshot(state) : null;
       }
       state.promptCancelled = true;
@@ -463,6 +492,10 @@ export function installApiAuthFetch(): void {
     const classified = classify(input);
     if (!classified) return originalFetch(input, init);
     const state = runtime(classified.plane);
+    if (state.session.adminTokenExpiresAt !== undefined && state.session.adminTokenExpiresAt <= Date.now()) {
+      forgetRememberedAdminToken(state.target, state.session.token ?? undefined);
+      invalidateSession(state);
+    }
     const generation = state.generation;
     const token = state.session.token;
     const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
