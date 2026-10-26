@@ -95,10 +95,15 @@ export async function handleSearch(
     }
   }
 
-  try { validateForwardAdmissionCredential(req.headers, config); }
-  catch (err) {
-    if (err instanceof ForwardAdmissionCredentialError) return formatErrorResponse(401, "authentication_error", err.message);
-    throw err;
+  // Ingress already validated this bearer as a proxy admission key. The sidecar resolver
+  // keeps it non-forwardable and materializes the selected stored ChatGPT credential.
+  // Other callers still owe the forwarding guard, including calls without admission.
+  if (admission?.source !== "bearer") {
+    try { validateForwardAdmissionCredential(req.headers, config); }
+    catch (err) {
+      if (err instanceof ForwardAdmissionCredentialError) return formatErrorResponse(401, "authentication_error", err.message);
+      throw err;
+    }
   }
 
   let exactAccount: ExactOpenAiSidecarAccount | undefined;
