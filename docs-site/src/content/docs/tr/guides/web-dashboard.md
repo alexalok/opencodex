@@ -32,12 +32,9 @@ yeniler. Yalnızca geri döngü olmayan bir ana bilgisayar adına bağlı bir ko
 paneli yönetici belirtecini (`OPENCODEX_ADMIN_AUTH_TOKEN` veya otomatik olarak
 oluşturulan `~/.opencodex/admin-api-token` dosyası) gerektirir.
 
-Uzak bir kontrol panelinin bu kimlik bilgisine ihtiyacı olduğunda, bir tarayıcı
-şifre yöneticisinin onu kaydetmeyi ve otomatik doldurmayı teklif edebilmesi için
-standart bir şifre formu sunar. Kontrol panelinin kendisi belirteci yine de
-yalnızca bellekte tutar ve `localStorage` veya `sessionStorage`'a yazmaz;
-kaydedilip kaydedilmeyeceği tamamen tarayıcının veya şifre yöneticisinin
-kararıdır.
+Uzak kontrol paneli, şifre yöneticileriyle uyumlu standart bir şifre formu kullanır. Doğrulama başarılı olduğunda yönetici belirtecini bu tarayıcının `localStorage` alanında 365 gün saklar. Sayfayı yenilemek, tarayıcıyı yeniden açmak veya proxy'yi yeniden başlatmak belirteci tekrar girmeyi gerektirmez. Normal kullanım saklama süresini uzatmaz.
+
+Süresi dolan veya reddedilen belirteçler, açıkça çıkış yapma ve sitenin tarayıcı verilerini temizleme, kaydedilmiş oturumu kaldırır. Kısa süreli GUI oturumları yalnızca bellekte kalır; tarayıcı depolaması kullanılamıyorsa giriş yalnızca mevcut sayfa için geçerlidir.
 
 ## Kota özeti çubuğu
 

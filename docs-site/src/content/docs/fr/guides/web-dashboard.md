@@ -31,11 +31,9 @@ renouvelle silencieusement à leur expiration ou au redémarrage du proxy. Seul 
 nom d'hôte hors bouclage exige le jeton administrateur (`OPENCODEX_ADMIN_AUTH_TOKEN`, ou le fichier généré
 automatiquement `~/.opencodex/admin-api-token`).
 
-Lorsqu'un tableau de bord distant exige cet identifiant, il présente un formulaire de mot de passe standard,
-ce qui permet au gestionnaire de mots de passe du navigateur de proposer son enregistrement et son
-remplissage automatique. Le tableau de bord lui-même ne conserve le jeton qu'en mémoire et ne l'écrit ni
-dans `localStorage` ni dans `sessionStorage` ; son enregistrement dépend entièrement du navigateur ou du
-gestionnaire de mots de passe.
+Le tableau de bord distant utilise un formulaire de mot de passe standard compatible avec les gestionnaires de mots de passe. Après validation, il mémorise le jeton administrateur dans le `localStorage` de ce navigateur pendant 365 jours. Recharger la page, rouvrir le navigateur ou redémarrer le proxy ne demande plus de le saisir. L'utilisation normale ne prolonge pas cette durée.
+
+Un jeton expiré ou refusé, une déconnexion explicite ou l'effacement des données du site supprime la connexion enregistrée. Les sessions GUI de courte durée restent en mémoire ; si le stockage du navigateur est indisponible, la connexion ne dure que pour la page actuelle.
 
 ## Barre de résumé des quotas
 
