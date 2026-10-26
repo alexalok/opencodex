@@ -44,11 +44,14 @@ describe("Reserve eligibility trusts receiving-listener admission", () => {
             const before = snapshot(fixture.counters);
             const result = await fixture.request("public", transport, model, headers(credential));
             const observed = delta(fixture.counters, before);
-            // Search's pre-existing bearer-forwarding guard fires before compatibility.
-            const searchAdmissionBearer = transport === "search" && credential === "bearer";
-            expect(result.status).toBe(searchAdmissionBearer ? 401 : 200);
+            // Bare Direct search still needs caller ChatGPT auth; exact-account search uses stored auth.
+            const searchDirectBearer = transport === "search" && credential === "bearer" && model === "gpt-reserve";
+            expect(result.status).toBe(searchDirectBearer ? 401 : 200);
             expect(observed.wham).toBe(0);
-            expect(observed.inference).toBe(searchAdmissionBearer ? 0 : 1);
+            expect(observed.inference).toBe(searchDirectBearer ? 0 : 1);
+            if (credential === "bearer" && !searchDirectBearer) {
+              expect(fixture.counters.inference.at(-1)?.authorization).toBe(`Bearer ${ACCESS}`);
+            }
             if (transport === "ws") expect(result.opened).toBe(true);
             if (model === "gpt-reserve" && credential !== "bearer") {
               expect(observed.credential).toBe(0);

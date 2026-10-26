@@ -199,15 +199,15 @@ Proxy admission credentials must never reach an upstream provider. The forwardin
 `^ocx_[0-9a-f]{40}$`, both environment tokens by constant-time comparison, and manually configured
 data keys by constant-time comparison.
 
-Admission records HOW the credential was presented, not only which one matched
-(`DataPlaneAdmission.source`: `loopback | dedicated | bearer | x-api-key`). The Responses and Chat
-transports accept a bearer that is one of our own admission secrets; the dedicated header still
-wins when both are present, and `x-api-key` is still refused there. That admission is safe only
-because `materializeCodexUpstreamAuth` SUBSTITUTES the stored main credential for it and throws
-before any upstream I/O when none is usable — the forwarding guard is NOT relaxed, and widening
-admission without guaranteed substitution would create exactly the leak it prevents. A bearer that
-is not one of our secrets stays unadmitted and remains Codex Direct passthrough, so the two bearer
-domains never mix.
+Admission records identity and presentation (`DataPlaneAdmission.source`:
+`loopback | dedicated | bearer | x-api-key`). Responses and Chat accept our own admission secrets
+as bearers; the dedicated header still wins when both are present, and `x-api-key` stays refused.
+`materializeCodexUpstreamAuth` substitutes the stored main credential and throws before upstream
+I/O when none is usable. The forwarding guard stays intact: admission without guaranteed
+substitution would leak the proxy secret. Other bearers remain unadmitted Codex Direct
+passthrough, keeping the two credential domains separate.
+Standalone search passes validated bearer admission to stored Pool/exact selection without
+forwarding the admission key. See the [search credential contract](data-planes/search.md#standalone-search-and-exact-account-selectors).
 
 Audit item #16 remains partially deferred. This credential split protects new WebSocket handshakes,
 but the following established-connection controls are intentionally outside this batch and must not
