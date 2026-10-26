@@ -52,7 +52,7 @@ const NATIVE_GATED = ["platform-macos", "widget", "desktop-shell"] as const;
 /** The two smoke jobs whose matrix legs shrink with the native selection. */
 const MATRIX_JOBS = ["keyring-smoke", "npm-global-smoke"] as const;
 
-type SelectionInputs = { event_name: string; ci: string; native: string; desktop?: string };
+type SelectionInputs = { event_name: string; ci: string; native: string; desktop?: string; disableMacos?: string };
 
 function term(source: string, inputs: SelectionInputs): string | boolean {
   const text = source.trim();
@@ -65,6 +65,7 @@ function term(source: string, inputs: SelectionInputs): string | boolean {
   const literal = /^'([^']*)'$/.exec(text);
   if (literal) return literal[1]!;
   if (text === "github.event_name") return inputs.event_name;
+  if (text === "vars.OCX_DISABLE_MACOS_CI") return inputs.disableMacos ?? "";
   const output = /^needs\.changes\.outputs\.([a-z-]+)$/.exec(text);
   if (output) {
     if (output[1] === "ci") return inputs.ci;
@@ -139,9 +140,9 @@ function emitterStep(outputName: string) {
   return step;
 }
 
-function renderFilterOutputs(text: string, inputs: { ci: string; native: string }): string {
+function renderFilterOutputs(text: string, inputs: { ci: string; native: string; disableMacos?: string }): string {
   // A pull_request emitter sees the plain filter value; the nightly override only matters on schedule.
-  const rendered = text.replace(/\$\{\{\s*(?:github\.event_name == 'schedule' && 'true' \|\| )?steps\.filter\.outputs\.([a-z_-]+)\s*\}\}/g, (_match, name: string) => {
+  const rendered = text.replace(/\$\{\{\s*vars\.OCX_DISABLE_MACOS_CI\s*\}\}/g, inputs.disableMacos ?? "").replace(/\$\{\{\s*(?:github\.event_name == 'schedule' && 'true' \|\| )?steps\.filter\.outputs\.([a-z_-]+)\s*\}\}/g, (_match, name: string) => {
     if (name === "ci") return inputs.ci;
     if (name === "native") return inputs.native;
     throw new Error(`unsupported filter output in emitter: ${name}`);
@@ -152,7 +153,7 @@ function renderFilterOutputs(text: string, inputs: { ci: string; native: string 
 }
 
 /** Run the emitter step the way Actions would, and parse what it wrote to GITHUB_OUTPUT. */
-function emittedOutputs(jobName: string, ci: string, native: string): { exitCode: number; values: Record<string, string> } {
+function emittedOutputs(jobName: string, ci: string, native: string, disableMacos = ""): { exitCode: number; values: Record<string, string> } {
   const step = emitterStep(matrixOutputName(jobName));
   const directory = mkdtempSync(join(tmpdir(), "ocx-ci-scope-"));
   try {
@@ -163,8 +164,8 @@ function emittedOutputs(jobName: string, ci: string, native: string): { exitCode
       GITHUB_ENV: join(directory, "github-env"),
       GITHUB_STEP_SUMMARY: join(directory, "step-summary"),
     };
-    for (const [key, value] of Object.entries(step.env ?? {})) env[key] = renderFilterOutputs(String(value), { ci, native });
-    const run = renderFilterOutputs(String(step.run ?? ""), { ci, native });
+    for (const [key, value] of Object.entries(step.env ?? {})) env[key] = renderFilterOutputs(String(value), { ci, native, disableMacos });
+    const run = renderFilterOutputs(String(step.run ?? ""), { ci, native, disableMacos });
     const result = Bun.spawnSync(["/bin/bash", "-e", "-o", "pipefail", "-c", run], { env, cwd: directory });
     const values: Record<string, string> = {};
     try {
@@ -194,9 +195,9 @@ function emittedOutputs(jobName: string, ci: string, native: string): { exitCode
   }
 }
 
-function legsFor(jobName: string, ci: "true" | "false", native: "true" | "false"): string[] {
+function legsFor(jobName: string, ci: "true" | "false", native: "true" | "false", disableMacos = ""): string[] {
   const outputName = matrixOutputName(jobName);
-  const { exitCode, values } = emittedOutputs(jobName, ci, native);
+  const { exitCode, values } = emittedOutputs(jobName, ci, native, disableMacos);
   expect(exitCode, `${jobName} emitter failed under ci=${ci} native=${native}`).toBe(0);
   const raw = values[outputName];
   expect(`${jobName} emitted ${outputName}:${typeof raw === "string" && raw.length > 0}`)
@@ -239,6 +240,7 @@ type GateInputs = {
   docs: string;
   structure: string;
   lane: string;
+  disableMacos?: string;
 };
 
 const PR_WITHOUT_NATIVE: GateInputs = {
@@ -261,6 +263,7 @@ function gateEnvironment(inputs: GateInputs, results: Record<string, string>): R
     CHANGES_DOCS: inputs.docs,
     CHANGES_STRUCTURE: inputs.structure,
     LANE: inputs.lane,
+    DISABLE_MACOS_CI: inputs.disableMacos ?? "",
     // `needs` serializes as an object per job, and the gate reads
     // `.value.result` out of it. Passing a flat name-to-string map makes jq
     // fail on the first entry, which empties the heredoc feeding the check
@@ -350,11 +353,13 @@ describe("the native path filter", () => {
 describe("the native-gated jobs", () => {
   const condition = jobs["platform-macos"]?.if ?? "";
 
-  test("are exactly platform-macos, widget and desktop-shell on one shared condition", () => {
+  test("are exactly platform-macos, widget and desktop-shell with a macOS-only repository opt-out", () => {
     expect(`widget:${jobs.widget?.if}`).toBe(`widget:${condition}`);
     // desktop-shell widens only the native term: package-affecting changes also select it so the
     // Linux packaged-shell E2E runs. Everything else about the condition is shared.
-    const widened = condition.replace(
+    const base = condition.replace(/^vars\.OCX_DISABLE_MACOS_CI != 'true' && \((.*)\)$/, "$1");
+    expect(base).not.toBe(condition);
+    const widened = base.replace(
       "needs.changes.outputs.native == 'true'",
       "(needs.changes.outputs.native == 'true' || needs.changes.outputs.desktop == 'true')",
     );
@@ -395,6 +400,20 @@ describe("the packaged desktop selection", () => {
 });
 
 describe("the smoke matrices", () => {
+  test.skipIf(cannotRunEmitters)("repository macOS opt-out keeps both other runner families", () => {
+    for (const disableMacos of ["true", "TRUE"]) {
+      for (const jobName of MATRIX_JOBS) {
+        expect(legsFor(jobName, "true", "true", disableMacos).sort()).toEqual(["ubuntu-latest", "windows-latest"]);
+      }
+    }
+    for (const name of ["setup-action", "remote-helper"]) {
+      const expression = String(jobs[name]?.strategy?.matrix?.os).replace(/^\$\{\{\s*|\s*\}\}$/g, "");
+      const matrix = new Function("vars", "fromJSON", `return (${expression});`);
+      expect(matrix({ OCX_DISABLE_MACOS_CI: "true" }, JSON.parse)).toEqual(["ubuntu-latest", "windows-latest"]);
+      expect(matrix({}, JSON.parse).sort()).toEqual(["macos-latest", "ubuntu-latest", "windows-latest"]);
+    }
+  });
+
   test("consume their matrices from validated changes outputs", () => {
     for (const jobName of MATRIX_JOBS) {
       const outputName = matrixOutputName(jobName);
@@ -429,7 +448,57 @@ describe("the smoke matrices", () => {
   });
 });
 
+describe("the repository macOS opt-out outside the main CI workflow", () => {
+  test("omits macOS from portable contract and queue-helper matrices without changing other legs", () => {
+    for (const [file, job, key] of [
+      ["catalog-async-contracts.yml", "contracts", "os"],
+      ["codex-queue-helpers.yml", "offline-helpers", "include"],
+    ]) {
+      const other = Bun.YAML.parse(readFileSync(repoPath(".github", "workflows", file!), "utf8")) as typeof workflow;
+      const expression = String(other.jobs?.[job!]?.strategy?.matrix?.[key!]).replace(/^\$\{\{\s*|\s*\}\}$/g, "");
+      const matrix = new Function("vars", "fromJSON", `return (${expression});`);
+      const defaults = matrix({}, JSON.parse) as Array<string | { os: string; shells: string }>;
+      const enabled = matrix({ OCX_DISABLE_MACOS_CI: "true" }, JSON.parse);
+      const runner = (leg: (typeof defaults)[number]) => typeof leg === "string" ? leg : leg.os;
+      expect(defaults.map(runner).sort()).toEqual(["macos-latest", "ubuntu-latest", "windows-latest"]);
+      expect(enabled).toEqual(defaults.filter(leg => runner(leg) !== "macos-latest"));
+      expect(matrix({ OCX_DISABLE_MACOS_CI: "false" }, JSON.parse)).toEqual(defaults);
+    }
+  });
+
+  test("skips standalone macOS service and installed-desktop jobs before runner allocation", () => {
+    for (const [file, macos, others] of [
+      ["service-lifecycle.yml", "macos-launchd", ["linux-systemd", "windows-schtasks"]],
+      ["desktop-installed-gate.yml", "macos", ["linux", "windows"]],
+    ] as const) {
+      const other = Bun.YAML.parse(readFileSync(repoPath(".github", "workflows", file), "utf8")) as typeof workflow;
+      const enabled = new Function("vars", `return (${other.jobs?.[macos]?.if});`);
+      expect(enabled({})).toBe(true);
+      expect(enabled({ OCX_DISABLE_MACOS_CI: "false" })).toBe(true);
+      expect(enabled({ OCX_DISABLE_MACOS_CI: "true" })).toBe(false);
+      for (const job of others) expect(other.jobs?.[job]?.if ?? "").not.toContain("OCX_DISABLE_MACOS_CI");
+    }
+  });
+});
+
 describe("the aggregate gate", () => {
+  test.skipIf(cannotRunGate)("repository macOS opt-out accepts only its deliberate skips", () => {
+    const inputs = { ...PR_WITHOUT_NATIVE, eventName: "workflow_dispatch", lane: "all", native: "true", packaging: "true", disableMacos: "true" };
+    const { expectations } = runGate(inputs, {});
+    const macosJobs = ["platform-macos", "widget", "macos-control"];
+    for (const name of macosJobs) expect(expectations[name]).toBe("not-requested");
+    const required = ["test", "platform-windows", "desktop-shell", "keyring-smoke", "npm-global-smoke"];
+    for (const name of required) expect(expectations[name]).toBe("requested");
+    const consistent = Object.fromEntries(Object.entries(expectations).map(([name, expected]) => [name, expected === "requested" ? "success" : "skipped"]));
+    expect(runGate(inputs, consistent).bad).toBe("");
+    for (const name of required) {
+      for (const result of ["failure", "cancelled", "skipped"]) {
+        expect(runGate(inputs, { ...consistent, [name]: result }).bad).toContain(name);
+      }
+    }
+    for (const name of macosJobs) expect(runGate(inputs, { ...consistent, [name]: "success" }).bad).toContain(name);
+  });
+
   test("reads the native output the same way the job conditions do", () => {
     const step = (jobs.ci?.steps ?? []).find(candidate => (candidate.run ?? "").includes("scoped=requested"));
     expect(step?.env?.CHANGES_NATIVE).toBe("${{ needs.changes.outputs.native }}");

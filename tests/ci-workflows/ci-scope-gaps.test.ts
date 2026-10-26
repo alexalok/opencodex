@@ -14,7 +14,7 @@ import { removeTreeWithRetry } from "../helpers/remove-tree";
 import { repoPath } from "../helpers/repo-root";
 
 type Step = { id?: string; name?: string; uses?: string; run?: string; env?: Record<string, string>; with?: Record<string, unknown> };
-type Job = { if?: string; needs?: string | string[]; outputs?: Record<string, string>; steps?: Step[]; strategy?: { matrix?: { os?: string[] } } };
+type Job = { if?: string; needs?: string | string[]; outputs?: Record<string, string>; steps?: Step[]; strategy?: { matrix?: { os?: string[] | string } } };
 const workflow = Bun.YAML.parse(readFileSync(repoPath(".github", "workflows", "ci.yml"), "utf8")) as {
   jobs: Record<string, Job | undefined>;
 };
@@ -43,7 +43,10 @@ describe("an edit to the setup action alone", () => {
     expect(selected.map(([name]) => name)).toEqual(["setup-action"]);
     const [, job] = selected[0]!;
     expect(scriptOf(job)).toContain("bun --version");
-    expect(job.strategy?.matrix?.os).toEqual(["ubuntu-latest", "windows-latest", "macos-latest"]);
+    const expression = String(job.strategy?.matrix?.os).replace(/^\$\{\{\s*|\s*\}\}$/g, "");
+    const matrix = new Function("vars", "fromJSON", `return (${expression});`);
+    expect(matrix({}, JSON.parse)).toEqual(["ubuntu-latest", "windows-latest", "macos-latest"]);
+    expect(matrix({ OCX_DISABLE_MACOS_CI: "true" }, JSON.parse)).toEqual(["ubuntu-latest", "windows-latest"]);
   });
 
   test("checks resolved and installed versions for both roles", () => {

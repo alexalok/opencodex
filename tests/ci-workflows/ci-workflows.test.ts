@@ -285,7 +285,7 @@ describe("GitHub Actions hardening", () => {
     // paying for a macOS shard. ci-scope-reduction.test.ts evaluates this
     // condition against the events that select the job.
     expect((ci.jobs?.["platform-macos"] as { if?: string })?.if).toBe(
-      "github.event_name != 'pull_request' || (needs.changes.outputs.ci == 'true' && needs.changes.outputs.native == 'true')",
+      "vars.OCX_DISABLE_MACOS_CI != 'true' && (github.event_name != 'pull_request' || (needs.changes.outputs.ci == 'true' && needs.changes.outputs.native == 'true'))",
     );
 
     // Whole-pool control lives on dispatch so every push does not pay the
@@ -302,7 +302,7 @@ describe("GitHub Actions hardening", () => {
     } | undefined;
     expect(macosControlJob?.name).toBe("macos control");
     expect(macosControlJob?.needs).toBe("changes");
-    expect(macosControlJob?.if).toBe("github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && (github.event.inputs.lane == '' || github.event.inputs.lane == 'all' || github.event.inputs.lane == 'macos-control')");
+    expect(macosControlJob?.if).toBe("vars.OCX_DISABLE_MACOS_CI != 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && (github.event.inputs.lane == '' || github.event.inputs.lane == 'all' || github.event.inputs.lane == 'macos-control'))");
     expect(macosControlJob?.["runs-on"]).toBe("macos-latest");
     expect(macosControlJob?.strategy).toBeUndefined();
     const macosControlSteps = macosControlJob?.steps ?? [];

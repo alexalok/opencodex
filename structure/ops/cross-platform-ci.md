@@ -24,6 +24,16 @@ treating the diff as data and selecting Windows when it cannot read the base par
 aggregate green `ci` check legitimately includes deliberate skips for every job the event did not
 request.
 
+Repositories can set the Actions variable `OCX_DISABLE_MACOS_CI=true` to omit macOS CI runners.
+Unset or false preserves the default platform coverage. The switch skips the macOS suite,
+control, widget, service-lifecycle and installed-desktop jobs before runner allocation, and
+removes macOS legs from the keyring, npm-global, setup-action, remote-helper, catalog-contract
+and queue-helper matrices. Linux and Windows selection stays unchanged. The aggregate accepts
+only the intentional macOS skips and still requires every selected job to succeed. This policy
+applies to refs containing these workflow guards; it does not alter release packaging. A green
+run with this opt-out supplies no macOS validation. `tests/ci-workflows/ci-scope-reduction.test.ts`
+exercises the matrices, job guards and aggregate failure behavior.
+
 This scoping accepts a real coverage loss: a green pull request no longer proves the macOS suite,
 the Rust toolchain, or the app bundle. Those regressions are caught at the promotion push to
 `preview` or `main`, before publication, and on demand by explicit dispatch — a pull request

@@ -171,7 +171,7 @@ describe("CI review lanes", () => {
     }
     const macosControlIf = ci.jobs?.["macos-control"] as { needs?: string; if?: string } | undefined;
     expect(macosControlIf?.needs).toBe("changes");
-    expect(macosControlIf?.if).toBe("github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && (github.event.inputs.lane == '' || github.event.inputs.lane == 'all' || github.event.inputs.lane == 'macos-control')");
+    expect(macosControlIf?.if).toBe("vars.OCX_DISABLE_MACOS_CI != 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && (github.event.inputs.lane == '' || github.event.inputs.lane == 'all' || github.event.inputs.lane == 'macos-control'))");
   });
 
   test("manual release-gates keeps ordinary jobs and skips only diagnostic suites", async () => {
@@ -180,12 +180,13 @@ describe("CI review lanes", () => {
     };
     // These job conditions use boolean operators and lowercase string comparisons.
     // Evaluate the checked-in expressions, rather than a second implementation of them.
-    const enabled = (job: string, event: string, lane: string, scope = "true", packaging = "true", native = "true", windows = "false") => {
+    const enabled = (job: string, event: string, lane: string, scope = "true", packaging = "true", native = "true", windows = "false", disableMacos = "") => {
       const condition = ci.jobs[job]!.if ?? "true";
-      const evaluate = new Function("github", "needs", `return (${condition});`);
+      const evaluate = new Function("github", "needs", "vars", `return (${condition});`);
       return evaluate(
         { event_name: event, event: { inputs: { lane } } },
         { changes: { outputs: { ci: scope, packaging, native, windows } } },
+        { OCX_DISABLE_MACOS_CI: disableMacos },
       );
     };
     for (const [event, lane, windows, control] of [
@@ -224,6 +225,14 @@ describe("CI review lanes", () => {
     }
     expect(enabled("platform-windows", "schedule", "", "false", "false", "false")).toBe(true);
     expect(enabled("macos-control", "schedule", "", "false", "false", "false")).toBe(true);
+    for (const event of ["workflow_dispatch", "schedule", "pull_request", "push"]) {
+      for (const job of ["platform-macos", "widget", "macos-control"]) {
+        expect(enabled(job, event, "all", "true", "true", "true", "true", "true")).toBe(false);
+      }
+      expect(enabled("desktop-shell", event, "all", "true", "true", "true", "true", "true")).toBe(true);
+      expect(enabled("platform-windows", event, "all", "true", "true", "true", "true", "true"))
+        .toBe(event !== "push");
+    }
     expect(ci.jobs["select-windows-runner"]!.if).toBeUndefined();
     expect(ci.jobs["platform-windows"]!.needs).toEqual(["changes", "select-windows-runner"]);
     expect(ci.jobs.ci!.if).toBe("always()");

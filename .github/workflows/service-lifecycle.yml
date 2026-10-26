@@ -177,6 +177,7 @@ jobs:
           fi
 
   macos-launchd:
+    if: vars.OCX_DISABLE_MACOS_CI != 'true'
     runs-on: macos-latest
     timeout-minutes: 10
     steps:

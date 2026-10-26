@@ -1,5 +1,7 @@
 name: Cross-platform CI
 
+# Set OCX_DISABLE_MACOS_CI=true in repository variables to omit macOS runners.
+
 on:
   # Always create the aggregate `ci` check for pull requests. Expensive jobs
   # apply the former path allowlist through the `changes` job below, so a
@@ -454,6 +456,7 @@ jobs:
         shell: bash
         env:
           NATIVE_SELECTED: ${{ github.event_name == 'schedule' && 'true' || steps.filter.outputs.native }}
+          DISABLE_MACOS_CI: ${{ vars.OCX_DISABLE_MACOS_CI }}
         run: |
           set -euo pipefail
           case "$NATIVE_SELECTED" in
@@ -469,7 +472,7 @@ jobs:
           # Two unconditional legs plus the macos leg that rides the native
           # selection. These strings are what the keyring-smoke and
           # npm-global-smoke matrices consume through fromJSON.
-          if [ "$NATIVE_SELECTED" = "true" ]; then
+          if [ "$NATIVE_SELECTED" = "true" ] && [[ "${DISABLE_MACOS_CI:-}" != [Tt][Rr][Uu][Ee] ]]; then
             keyring_matrix='[{"name":"ubuntu","runner":"ubuntu-latest"},{"name":"windows","runner":"windows-latest"},{"name":"macos","runner":"macos-latest"}]'
             npm_global_matrix='[{"os":"ubuntu-latest"},{"os":"windows-latest"},{"os":"macos-latest"}]'
           else
@@ -803,7 +806,7 @@ jobs:
     # Native-gated: these legs only run when the changes job's `native` filter
     # says the macOS suite's inputs could have changed, so an ordinary source
     # pull request stops paying for three macOS runners.
-    if: github.event_name != 'pull_request' || (needs.changes.outputs.ci == 'true' && needs.changes.outputs.native == 'true')
+    if: vars.OCX_DISABLE_MACOS_CI != 'true' && (github.event_name != 'pull_request' || (needs.changes.outputs.ci == 'true' && needs.changes.outputs.native == 'true'))
     runs-on: macos-latest
     # Three shards. Unsharded, this job was the critical path on every green dev
     # push (mean 14.9 min against a 4.7 min Linux maximum; devlog
@@ -886,7 +889,7 @@ jobs:
     # that should run this job, so a new lane defaults to skipping the diagnostic.
     # The nightly schedule is the full lane=all matrix, so it runs this job too.
     if: >-
-      github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && (github.event.inputs.lane == '' || github.event.inputs.lane == 'all' || github.event.inputs.lane == 'macos-control')
+      vars.OCX_DISABLE_MACOS_CI != 'true' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && (github.event.inputs.lane == '' || github.event.inputs.lane == 'all' || github.event.inputs.lane == 'macos-control'))
     runs-on: macos-latest
     # Unsharded full-membership control, one worker in sequential fresh batches.
     # Long-lived Bun isolate pools repeatedly wedged while synchronously reaping
@@ -1278,7 +1281,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: ${{ fromJSON(vars.OCX_DISABLE_MACOS_CI == 'true' && '["ubuntu-latest","windows-latest"]' || '["ubuntu-latest","windows-latest","macos-latest"]') }}
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -1336,7 +1339,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: ${{ fromJSON(vars.OCX_DISABLE_MACOS_CI == 'true' && '["ubuntu-latest","windows-latest"]' || '["ubuntu-latest","macos-latest","windows-latest"]') }}
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -1469,7 +1472,7 @@ jobs:
     needs: [changes, gates]
     # Native-gated like platform-macos: the widget extension and app bundle
     # are rebuilt only when native-capable paths changed.
-    if: github.event_name != 'pull_request' || (needs.changes.outputs.ci == 'true' && needs.changes.outputs.native == 'true')
+    if: vars.OCX_DISABLE_MACOS_CI != 'true' && (github.event_name != 'pull_request' || (needs.changes.outputs.ci == 'true' && needs.changes.outputs.native == 'true'))
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
@@ -1699,6 +1702,7 @@ jobs:
           CHANGES_NATIVE: ${{ needs.changes.outputs.native }}
           CHANGES_DESKTOP: ${{ needs.changes.outputs.desktop }}
           CHANGES_WINDOWS: ${{ needs.changes.outputs.windows }}
+          DISABLE_MACOS_CI: ${{ vars.OCX_DISABLE_MACOS_CI }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -1780,6 +1784,12 @@ jobs:
             # nine shards and requires them, exactly as dispatch and the schedule do. A
             # shard that only fails on a pull request is a regression in that pull request.
             windows=requested
+          fi
+
+          # Match the repository opt-out without changing Linux or Windows expectations.
+          if [[ "${DISABLE_MACOS_CI:-}" == [Tt][Rr][Uu][Ee] ]]; then
+            native=not-requested
+            dispatch=not-requested
           fi
 
           # One line per job, mirroring that job's own `if:`. Adding a job to this workflow
