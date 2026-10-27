@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { releaseTagListArgs } from "../../scripts/lib/release-version-policy";
 import { compareReleaseTags } from "../../scripts/release-notes";
 import { repoPath, repoRoot as resolveRepoRoot } from "../helpers/repo-root";
 
@@ -43,7 +46,8 @@ function git(args: string[]): { ok: boolean; out: string } {
 }
 
 function localReleaseTags(): string[] {
-  const result = git(["tag", "--list", "v*"]);
+  const metadata: unknown = JSON.parse(readFileSync(repoPath("package.json"), "utf8"));
+  const result = git(releaseTagListArgs(metadata));
   // A tarball install or a missing git binary lands here. Absent tags cannot prove a
   // regression, so the check reports nothing rather than inventing a failure.
   if (!result.ok) return [];
@@ -132,5 +136,39 @@ describe("release version line", () => {
     expect(compareReleaseTags("v2.35.0-preview.1", "v2.34.0")).toBeGreaterThan(0);
     // ...but a prerelease of the SAME core is behind its own stable release.
     expect(compareReleaseTags("v2.34.0-preview.1", "v2.34.0")).toBeLessThan(0);
+  });
+});
+
+
+describe("fork release version policy", () => {
+  test("only reachable fork tags constrain a backport checkout", () => {
+    const directory = mkdtempSync(join(tmpdir(), "release-tag-policy-"));
+    const run = (...args: string[]) => {
+      const result = Bun.spawnSync(["git", ...args], { cwd: directory });
+      if (result.exitCode !== 0) throw new Error(new TextDecoder().decode(result.stderr));
+      return new TextDecoder().decode(result.stdout).trim();
+    };
+    try {
+      run("init", "-q"); run("config", "user.name", "Fixture"); run("config", "user.email", "fixture@example.test");
+      writeFileSync(join(directory, "file"), "base"); run("add", "file"); run("commit", "-qm", "base");
+      run("tag", "v2.84.2"); const base = run("rev-parse", "HEAD");
+      run("checkout", "-qb", "upstream");
+      writeFileSync(join(directory, "file"), "upstream"); run("commit", "-qam", "upstream"); run("tag", "v2.93.0");
+      run("checkout", "-qb", "backport", base);
+      const tags = run(...releaseTagListArgs({ opencodexFork: { repository: "https://github.com/alexalok/opencodex" } }));
+      expect(tags).toBe("v2.84.2");
+      expect(run(...releaseTagListArgs({}))).toContain("v2.93.0");
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  test("fork check ignores tags from unmerged upstream release lines", () => {
+    expect(releaseTagListArgs({ opencodexFork: { repository: "https://github.com/alexalok/opencodex" } }))
+      .toEqual(["tag", "--list", "v*", "--merged", "HEAD"]);
+  });
+  test("upstream and malformed fork markers retain repository-wide release protection", () => {
+    for (const metadata of [{}, { opencodexFork: {} }, { opencodexFork: { repository: "" } },
+      { opencodexFork: { repository: "https://github.com/lidge-jun/opencodex" } }]) {
+      expect(releaseTagListArgs(metadata)).toEqual(["tag", "--list", "v*"]);
+    }
   });
 });
