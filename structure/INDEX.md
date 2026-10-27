@@ -67,6 +67,7 @@ The wire surfaces a client actually talks to.
 | [`fallback-policy.md`](fallback-policy.md) | OCX-11 fallback off: what is a model or provider fallback (and what intra-pool rotation is not), scope precedence, the guarded hop sites, the fallback_refused and home_unreachable contracts, and the ocx.fallback/1 state. |
 | [`remote-workspace.md`](remote-workspace.md) | Opt-in workspace identity, executor grants, runtime adapters, management and dashboard integration. |
 | [`remote-link.md`](remote-link.md) | SSH machine-link building blocks: OpenSSH argument policy, ssh_config candidates, tunnel lifecycle reducer, the private link store, and standalone pairing-grant delivery. |
+| [`ops/fork-release-policy.md`](ops/fork-release-policy.md) | Local release version validation for explicit forks and backport branches. |
 
 ### Tier 4 — Providers and adapters
 
@@ -181,6 +182,7 @@ A source area can be described by more than one doc, because these docs are orga
 | `gui/src/hooks/useProviderAccountPools.ts` | [`account-auto-pause.md`](account-auto-pause.md) |
 | `scripts/` | [`overview.md`](overview.md)<br>[`ops/docs-and-release.md`](ops/docs-and-release.md) |
 | `scripts/generate-ocx-skill-surface.ts` | [`cli-management.md`](cli-management.md) |
+| `scripts/lib/release-version-policy.ts` | [`ops/fork-release-policy.md`](ops/fork-release-policy.md) |
 | `scripts/test-run-lock-gate.ts` | [`ops/test-sandbox-cleanup.md`](ops/test-sandbox-cleanup.md) |
 | `scripts/test-run-lock.ts` | [`ops/test-sandbox-cleanup.md`](ops/test-sandbox-cleanup.md) |
 | `skills/ocx/` | [`cli-management.md`](cli-management.md) |
@@ -361,6 +363,7 @@ A source area can be described by more than one doc, because these docs are orga
 | `src/vision/` | [`runtime.md`](runtime.md)<br>[`gui-and-management-api.md`](gui-and-management-api.md) |
 | `src/web-search/` | [`runtime.md`](runtime.md)<br>[`providers/anthropic-progress.md`](providers/anthropic-progress.md)<br>[`providers-and-adapters.md`](providers-and-adapters.md) |
 | `tests/` | [`ops/test-sandbox-cleanup.md`](ops/test-sandbox-cleanup.md) |
+| `tests/ci-workflows/release-version-line.test.ts` | [`ops/fork-release-policy.md`](ops/fork-release-policy.md) |
 
 ### Not described by any doc
 
