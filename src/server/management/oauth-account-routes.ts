@@ -1119,6 +1119,7 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
         name: k.name,
         prefix: k.key.slice(0, 17) + "...",
         createdAt: k.createdAt,
+        allowQuotaRead: k.allowQuotaRead === true,
         // Scope is metadata, not secret: an operator has to be able to read
         // what a key may reach without minting a replacement to find out.
         ...(k.allowedProviders ? { allowedProviders: [...k.allowedProviders] } : {}),
@@ -1224,11 +1225,16 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
     // Rename and scope are independent edits. A scope-only PATCH must not have
     // to restate the name, and a rename must not silently widen a scope, so
     // each field is applied only when the caller actually sent it.
+    const grantingQuotaRead = Object.hasOwn(body, "allowQuotaRead");
+    if (grantingQuotaRead && typeof body.allowQuotaRead !== "boolean") {
+      return jsonResponse({ error: "allowQuotaRead must be a boolean" }, 400, req, config);
+    }
+    if (grantingQuotaRead) entry.allowQuotaRead = body.allowQuotaRead as boolean;
     const renaming = body.name !== undefined;
     const scopingProviders = body.allowedProviders !== undefined;
     const scopingModels = body.allowedModels !== undefined;
-    if (!renaming && !scopingProviders && !scopingModels) {
-      return jsonResponse({ error: "name, allowedProviders or allowedModels required" }, 400, req, config);
+    if (!renaming && !scopingProviders && !scopingModels && !grantingQuotaRead) {
+      return jsonResponse({ error: "name, allowedProviders, allowedModels or allowQuotaRead required" }, 400, req, config);
     }
     if (renaming) {
       const nameField = validateKeyName(body.name, { required: true });

@@ -432,6 +432,11 @@ export function createServeOptions(ctx: ServeOptionsContext) {
         return new Response(response.body, { status: 503, headers });
       }
 
+      if (url.pathname === "/v1/hub-quota") {
+        const { handleHubQuota } = await import("../hub-quota");
+        return withCors(await handleHubQuota(req, config, undefined, policy), req, policy);
+      }
+
       if (req.method === "OPTIONS") {
         // /readyz is exact-GET only; OPTIONS (like POST and the trailing-slash
         // path) must answer the deterministic JSON 404, never the generic 204

@@ -329,6 +329,8 @@ export interface OcxApiKeyEntry {
   key: string;
   createdAt: string;
   pendingRotation?: OcxPendingApiKeyRotation;
+  /** Explicit opt-in for the read-only hub quota endpoint. */
+  allowQuotaRead?: boolean;
   /**
    * Resolved provider names this key may reach. Absent or empty means every
    * provider, which is what every existing key has, so adding the field

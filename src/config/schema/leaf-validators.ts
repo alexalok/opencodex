@@ -786,6 +786,7 @@ export const apiKeyEntrySchema = z.object({
   createdAt: z.string().catch(""),
   // A damaged overlap record must never discard the still-authoritative key.
   pendingRotation: pendingApiKeyRotationSchema.optional().catch(undefined),
+  allowQuotaRead: z.boolean().optional().catch(false),
   // Deliberately NOT `.catch`ed, unlike every field above. Degrading a damaged
   // scope to `undefined` would silently widen the key to the whole catalog,
   // which is the one direction a permission field must never fail. Letting the
