@@ -18,9 +18,15 @@ export interface HubQuotaAccount {
   quota?: { weeklyPercent?: number; weeklyResetAt?: number; fiveHourPercent?: number } | null;
   resetCreditExpirations?: string[] | null;
 }
+export type HubQuotaSnapshot = HubQuotaAccount[] & { readonly isCurrent?: () => boolean };
+function ownedSnapshot(rows: HubQuotaAccount[], isCurrent: () => boolean): HubQuotaSnapshot {
+  if (!isCurrent()) throw new Error("Quota unavailable");
+  Object.defineProperty(rows, "isCurrent", { value: isCurrent });
+  return rows;
+}
 export interface HubQuotaReaders {
-  openai(config: OcxConfig, signal?: AbortSignal): Promise<HubQuotaAccount[]>;
-  anthropic(config: OcxConfig, signal?: AbortSignal): Promise<HubQuotaAccount[]>;
+  openai(config: OcxConfig, signal?: AbortSignal): Promise<HubQuotaSnapshot>;
+  anthropic(config: OcxConfig, signal?: AbortSignal): Promise<HubQuotaSnapshot>;
 }
 
 /** Existing quota reads may refresh cached metadata/credentials, never select or pause accounts. */
@@ -29,6 +35,7 @@ export const hubQuotaReaders: HubQuotaReaders = {
     signal?.throwIfAborted();
     if ((config.codexAccounts?.length ?? 0) >= MAX_HUB_QUOTA_ACCOUNTS) throw new Error("Quota unavailable");
     const snapshot = await listCodexAuthAccountsSnapshot(config);
+    const roster = JSON.stringify(config.codexAccounts?.map(account => account.id) ?? []);
     const generations = new Map(snapshot.accounts.filter(account => !account.isMain).map(account => [account.id, readCodexAccountRecord(account.id)?.generation]));
     // Bound upstream concurrency; expiration failure preserves independently available quota.
     const rows: HubQuotaAccount[] = [];
@@ -47,17 +54,18 @@ export const hubQuotaReaders: HubQuotaReaders = {
       rows.push(...batch);
     }
     signal?.throwIfAborted();
-    if (!isMainAccountIdentityGenerationLive(snapshot.mainIdentityGeneration)) throw new Error("Quota unavailable");
-    if (rows.some(row => !row.isMain && generations.get(row.id) !== readCodexAccountRecord(row.id)?.generation)) {
-      throw new Error("Quota unavailable");
-    }
-    return rows.filter(row => row.isMain || config.codexAccounts?.some(account => account.id === row.id));
+    const isCurrent = () => isMainAccountIdentityGenerationLive(snapshot.mainIdentityGeneration)
+      && roster === JSON.stringify(config.codexAccounts?.map(account => account.id) ?? [])
+      && rows.every(row => row.isMain || (config.codexAccounts?.some(account => account.id === row.id)
+        && generations.get(row.id) === readCodexAccountRecord(row.id)?.generation));
+    return ownedSnapshot(rows, isCurrent);
   },
   async anthropic(config, signal) {
     signal?.throwIfAborted();
     const provider = config.providers.anthropic;
     const accounts = getAccountSet("anthropic")?.accounts ?? [];
     if (accounts.length > MAX_HUB_QUOTA_ACCOUNTS) throw new Error("Quota unavailable");
+    const roster = JSON.stringify(accounts.map(account => account.id));
     const rows: ProviderAccountQuota[] = [];
     for (let offset = 0; offset < accounts.length; offset += 8) {
       signal?.throwIfAborted();
@@ -65,12 +73,12 @@ export const hubQuotaReaders: HubQuotaReaders = {
     }
     signal?.throwIfAborted();
     const current = getAccountSet("anthropic")?.accounts ?? [];
-    if (config.providers.anthropic !== provider || rows.some(row => row.isCurrent?.() === false)) {
-      throw new Error("Quota unavailable");
-    }
-    return current.map(account => ({
+    const isCurrent = () => config.providers.anthropic === provider
+      && roster === JSON.stringify(getAccountSet("anthropic")?.accounts.map(account => account.id) ?? [])
+      && rows.every(row => row.isCurrent?.() !== false);
+    return ownedSnapshot(current.map(account => ({
       id: account.id, alias: account.alias,
       quota: rows.find(row => row.accountId === account.id)?.quota ?? null,
-    }));
+    })), isCurrent);
   },
 };
