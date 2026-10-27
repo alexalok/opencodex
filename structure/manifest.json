@@ -1036,6 +1036,16 @@
         "src/oauth/api-key-pool-preserve.ts",
         "gui/src/account-pause-display.ts"
       ]
+    },
+    {
+      "path": "ops/fork-release-policy.md",
+      "tier": 3,
+      "title": "Fork release version checks",
+      "scope": "Local release version validation for explicit forks and backport branches.",
+      "documents": [
+        "scripts/lib/release-version-policy.ts",
+        "tests/ci-workflows/release-version-line.test.ts"
+      ]
     }
   ],
   "contracts": {
