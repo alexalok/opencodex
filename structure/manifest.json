@@ -909,6 +909,18 @@
       ]
     },
     {
+      "path": "hub-quota.md",
+      "tier": 3,
+      "title": "Read-only Hub Quotas",
+      "scope": "Explicit quota grants, bounded account projection, and credential-owned hub quota reads.",
+      "documents": [
+        "src/server/",
+        "src/config/",
+        "src/providers/",
+        "src/codex/"
+      ]
+    },
+    {
       "path": "remote-workspace.md",
       "tier": 3,
       "title": "Remote Workspace",
