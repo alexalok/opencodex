@@ -28,19 +28,9 @@ function label(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 && value.length <= 128
     && !/[\x00-\x1f\x7f@:/\\]/.test(value) ? value : undefined;
 }
-function matches(left: HubQuotaAccount, right: HubQuotaAccount): boolean {
-  const email = left.email?.trim().toLowerCase();
-  const plan = left.plan?.trim().toLowerCase();
-  const reset = left.quota?.weeklyResetAt;
-  const other = right.quota?.weeklyResetAt;
-  return !!email?.includes("@") && !!plan && typeof reset === "number" && reset > 0
-    && typeof other === "number" && other > 0 && Math.abs(reset - other) <= 2
-    && email === right.email?.trim().toLowerCase() && plan === right.plan?.trim().toLowerCase();
-}
 function project(provider: Provider, rows: HubQuotaAccount[], config: OcxConfig) {
   if (rows.length > MAX_HUB_QUOTA_ACCOUNTS) throw new Error("Quota unavailable");
-  const pool = rows.filter(row => !row.isMain);
-  return rows.filter(row => provider !== "openai" || !row.isMain || !pool.some(other => matches(row, other))).map(row => {
+  return rows.map(row => {
     const id = createHmac("sha256", projectionKey).update(provider).update("\0").update(row.id).digest("hex");
     const alias = label(row.alias);
     const common = { id, ...(alias ? { alias } : {}), weeklyPercent: percent(row.quota?.weeklyPercent) };

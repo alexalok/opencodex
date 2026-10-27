@@ -34,6 +34,7 @@ import { fetchPoolAccountQuota, PoolQuotaProbeBusyError, POOL_QUOTA_REFRESH_CONC
 import type { PoolQuotaResult } from "./pool-quota-probe";
 import { getRuntimeConfig, configuredPoolAccount, mapWithConcurrency } from "./runtime-config";
 import { isPassiveRead } from "../../lib/passive-read";
+import { captureCodexQuotaIdentity } from "./quota-identity";
 
 export function quotaForPlan<T extends Omit<StoredAccountQuota, "updatedAt"> | StoredAccountQuota | null>(
   quota: T,
@@ -132,7 +133,8 @@ export function poolAccountDto(
   // health projection. Emitting only the boolean is what left #4212's reporter guessing which
   // account took their model away and why, so name the cause they actually have to act on.
   const reauthReason: CodexAccountReauthReason | undefined = rawReauthReason ?? (health.status === "reauth_required" ? health.reason : undefined);
-  return {
+  const generation = readCodexAccountRecord(account.id)?.generation;
+  return captureCodexQuotaIdentity({
     id: account.id,
     email: projectEmail(account.email, maskEmails) ?? account.email,
     ...(account.alias !== undefined ? { alias: account.alias } : {}),
@@ -154,7 +156,7 @@ export function poolAccountDto(
     hasCredential,
     ...(quotaResult.quotaProbeSkipped ? { quotaProbeSkipped: true as const } : {}),
     ...oauthAccountHealthFields("codex", account.id, health),
-  };
+  }, account.email, () => readCodexAccountRecord(account.id)?.generation === generation);
 }
 
 export interface CodexAuthAccountDto {
@@ -415,7 +417,7 @@ export async function listCodexAuthAccountsSnapshot(
       ...oauthAccountHealthFields("codex", MAIN_CODEX_ACCOUNT_ID, mainHealth),
     };
     return {
-      accounts: [main, ...withQuota],
+      accounts: [captureCodexQuotaIdentity(main, mainInfo.email), ...withQuota],
       mainIdentityGeneration: mainSnapshotLive
         ? fetchedMainGeneration
         : captureMainAccountIdentityGeneration(),
