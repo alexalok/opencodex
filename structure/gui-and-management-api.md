@@ -113,7 +113,7 @@ OpenCodex uses three mutually exclusive reusable admission credential classes:
 
 | Credential class | Sources | Allowed surface |
 | --- | --- | --- |
-| Data plane | `OPENCODEX_API_AUTH_TOKEN`, the `service-api-token` file loaded through `OCX_API_TOKEN_FILE`, and `config.apiKeys` | `/v1/*` HTTP endpoints and new data-plane WebSocket handshakes only |
+| Data plane | `OPENCODEX_API_AUTH_TOKEN`, the `service-api-token` file loaded through `OCX_API_TOKEN_FILE`, and `config.apiKeys` | `/v1/*` HTTP endpoints and new data-plane WebSocket handshakes only; configured-key quota grants follow [the hub quota contract](hub-quota.md). |
 | Management plane | `OPENCODEX_ADMIN_AUTH_TOKEN` or the independent protected `admin-api-token` file | `/api/*` only |
 | GUI session | A short-lived token issued only with a legitimate same-origin local dashboard page | `/api/*` only, bound to the issuing origin Codex compatibility [certificate setup](clients/codex-desktop.md#certificate-setup-api) additionally requires trusted loopback ingress, explicit confirmation and an exact fingerprint for trust changes; status remains read-only and setup never enables a relay, changes login or restarts the app. |
 
