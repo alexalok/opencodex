@@ -722,6 +722,7 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
         name: k.name,
         prefix: k.key.slice(0, 17) + "...",
         createdAt: k.createdAt,
+        allowQuotaRead: k.allowQuotaRead === true,
         ...(k.pendingRotation ? { pendingRotation: {
           id: k.pendingRotation.id,
           createdAt: k.pendingRotation.createdAt,
@@ -804,11 +805,16 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
     const body = await readJsonBody(req);
     if (!body) return jsonResponse({ error: "invalid body" }, 400, req, config);
     if (typeof body.id !== "string" || !body.id) return jsonResponse({ error: "id required" }, 400, req, config);
-    const nameField = validateKeyName(body.name, { required: true });
+    const hasGrant = Object.hasOwn(body, "allowQuotaRead");
+    if (hasGrant && typeof body.allowQuotaRead !== "boolean") {
+      return jsonResponse({ error: "allowQuotaRead must be a boolean" }, 400, req, config);
+    }
+    const nameField = validateKeyName(body.name, { required: !hasGrant || Object.hasOwn(body, "name") });
     if ("error" in nameField) return jsonResponse({ error: nameField.error }, 400, req, config);
     const entry = (config.apiKeys ?? []).find(k => k.id === body.id);
     if (!entry) return jsonResponse({ error: "key not found" }, 404, req, config);
-    entry.name = nameField.value;
+    if (Object.hasOwn(body, "name")) entry.name = nameField.value;
+    if (hasGrant) entry.allowQuotaRead = body.allowQuotaRead as boolean;
     saveConfigPreservingClaudeCode(config);
     reconcileLiveStateStores();
     // Never echo key material from a rename.

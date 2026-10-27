@@ -222,6 +222,10 @@ export interface OcxApiKeyEntry {
   key: string;
   createdAt: string;
   pendingRotation?: OcxPendingApiKeyRotation;
+  /** Explicit opt-in for the read-only hub quota endpoint. */
+  allowQuotaRead?: boolean;
+  allowedProviders?: string[];
+  allowedModels?: string[];
 }
 
 export interface OcxPendingApiKeyRotation {

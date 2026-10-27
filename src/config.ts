@@ -935,6 +935,7 @@ const apiKeyEntrySchema = z.object({
   createdAt: z.string().catch(""),
   // A damaged overlap record must never discard the still-authoritative key.
   pendingRotation: pendingApiKeyRotationSchema.optional().catch(undefined),
+  allowQuotaRead: z.boolean().optional().catch(false),
 }).passthrough();
 
 /**

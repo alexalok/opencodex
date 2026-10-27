@@ -12,7 +12,7 @@ import { codexPlanKey } from "../codex/plan";
 import { resolveEnvValue } from "../config";
 import { resolveProviderApiKey } from "./key-store";
 import { getValidAccessToken, getValidAccessTokenForAccount } from "../oauth";
-import { getAccountCredential, getAccountSet, getCredential } from "../oauth/store";
+import { credentialGeneration, getAccountCredential, getAccountSet, getCredential } from "../oauth/store";
 import { antigravityUserAgent } from "../adapters/client-fingerprint";
 import { isCanonicalOllamaCloudUrl } from "../adapters/ollama-native-url";
 import { providerOutboundPost, providerRedirectError, type ProviderOutboundDependencies } from "../lib/provider-outbound";
@@ -1455,6 +1455,34 @@ async function fetchAnthropicUsageQuota(accessToken: string): Promise<ProviderQu
   });
   anthropicUsageInflight.set(accessToken, probe);
   return probe;
+}
+
+// The hub cannot use legacy slot-keyed quota entries: a slot can be re-enrolled.
+// Keep its bounded cache tied to the exact post-refresh credential generation.
+const hubAnthropicQuotaCache = new Map<string, { generation: string; ts: number; quota: ProviderQuota | null }>();
+
+export async function fetchAnthropicHubAccountQuota(accountId: string): Promise<ProviderAccountQuota> {
+  const token = await getTokenForAccountQuotaProbe("anthropic", accountId);
+  const credential = getAccountCredential("anthropic", accountId);
+  if (!credential || credential.access !== token) throw new Error("Quota unavailable");
+  const generation = credentialGeneration(credential);
+  const isCurrent = () => {
+    const current = getAccountCredential("anthropic", accountId);
+    return !!current && credentialGeneration(current) === generation;
+  };
+  const cached = hubAnthropicQuotaCache.get(accountId);
+  // The underlying usage reader joins only probes using this exact bearer.
+  const quota = cached?.generation === generation && Date.now() - cached.ts < ACCOUNT_QUOTA_TTL_MS
+    ? cached.quota : await fetchAnthropicUsageQuota(token);
+  if (!isCurrent()) throw new Error("Quota unavailable");
+  if (!cached || cached.generation !== generation || Date.now() - cached.ts >= ACCOUNT_QUOTA_TTL_MS) {
+    hubAnthropicQuotaCache.delete(accountId);
+    if (hubAnthropicQuotaCache.size >= 128) hubAnthropicQuotaCache.delete(hubAnthropicQuotaCache.keys().next().value!);
+    hubAnthropicQuotaCache.set(accountId, { generation, ts: Date.now(), quota });
+  }
+  const result: ProviderAccountQuota = { accountId, quota: normalizeAnthropicQuota(quota, Date.now()), ...(!quota ? { unavailable: true as const } : {}) };
+  Object.defineProperty(result, "isCurrent", { value: isCurrent });
+  return result;
 }
 
 async function fetchAnthropicQuota(provider: string): Promise<ProviderQuotaReport | null> {
