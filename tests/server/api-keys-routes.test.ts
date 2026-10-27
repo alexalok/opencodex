@@ -1069,3 +1069,42 @@ describe("apiKeys config compatibility", () => {
     expect(ownAdmissionTokens(loaded)).toEqual(["ocx_data_realkey"]);
   });
 });
+
+test("quota read grant defaults denied, requires boolean, persists and survives rotation", async () => {
+  const config = baseConfig();
+  saveConfig(config);
+  const server = startServer(0);
+  try {
+    const created = await keysRequest(server, "POST", { name: "quota client", allowQuotaRead: true });
+    const id = created.json.id as string;
+    expect(loadConfig().apiKeys![0]!.allowQuotaRead).not.toBe(true);
+    expect((await keysRequest(server, "PATCH", { id, allowQuotaRead: "true" })).status).toBe(400);
+    expect((await keysRequest(server, "PATCH", { id, allowQuotaRead: true })).status).toBe(200);
+    expect(loadConfig().apiKeys![0]!.allowQuotaRead).toBe(true);
+    const rotated = await managementRequest(server, "/api/keys/rotate", "POST", { id });
+    expect((await managementRequest(server, "/api/keys/rotate/commit", "POST", { id, rotationId: rotated.json.rotationId })).status).toBe(200);
+    expect(loadConfig().apiKeys![0]!.allowQuotaRead).toBe(true);
+    expect((await keysRequest(server, "GET")).json.keys).toEqual(expect.arrayContaining([expect.objectContaining({ id, allowQuotaRead: true })]));
+    expect((await keysRequest(server, "PATCH", { id, allowQuotaRead: false })).status).toBe(200);
+    expect(loadConfig().apiKeys![0]!.allowQuotaRead).toBe(false);
+  } finally { server.stop(true); }
+});
+
+test("hub quota route requires explicit configured grant even on loopback", async () => {
+  const config = { ...baseConfig(), runtimeRole: "hub" as const, apiKeys: [{ id: "fixture-client", name: "client", key: "fixture-quota-key", createdAt: "", allowQuotaRead: true }] };
+  saveConfig(config);
+  const server = startServer(0);
+  try {
+    const read = (key?: string, method = "GET", suffix = "") => fetch(new URL(`/v1/hub-quota${suffix}`, server.url), { method, headers: key ? { "x-opencodex-api-key": key } : {} });
+    expect((await read()).status).toBe(401);
+    expect((await read(ADMIN_TOKEN)).status).toBe(401);
+    expect((await read("fixture-quota-key", "POST")).status).toBe(405);
+    expect((await read("fixture-quota-key", "OPTIONS")).status).toBe(405);
+    expect((await read("fixture-quota-key", "GET", "?refresh=1")).status).toBe(400);
+    const response = await read("fixture-quota-key");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toMatchObject({ schemaVersion: 1, providers: { openai: { enabled: false, accounts: [] }, anthropic: { enabled: false, accounts: [] } } });
+
+  } finally { server.stop(true); }
+});

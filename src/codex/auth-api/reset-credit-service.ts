@@ -124,7 +124,7 @@ function safeResetCreditConsumeDto(input: unknown): { code: string } {
  * Throws on any auth or upstream failure; the caller treats a throw on consume as ambiguous.
  */
 export function createResetCreditWhamClient(config: OcxConfig, accountId: string): {
-  inspect: () => Promise<{ credits: { granted_at: string; expires_at: string }[] }>;
+  inspect: () => Promise<{ credits: { granted_at: string; expires_at: string }[]; available_count?: number }>;
   consume: (redeemRequestId: string) => Promise<{ code: string }>;
 } {
   const run = async <T>(operation: (auth: ResetCreditAuth) => Promise<T>): Promise<T> => {
