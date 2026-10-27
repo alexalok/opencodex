@@ -65,7 +65,7 @@ export const hubQuotaReaders: HubQuotaReaders = {
     }
     signal?.throwIfAborted();
     const current = getAccountSet("anthropic")?.accounts ?? [];
-    if (config.providers.anthropic !== provider || rows.some(row => row.unavailable || row.isCurrent?.() === false)) {
+    if (config.providers.anthropic !== provider || rows.some(row => row.isCurrent?.() === false)) {
       throw new Error("Quota unavailable");
     }
     return current.map(account => ({

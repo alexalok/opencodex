@@ -869,7 +869,8 @@ Schema version 1 contains `generatedAt` and `providers.openai` /
 `providers.anthropic`, each with `enabled`, `accounts`, and an optional fixed
 `error` string. Disabled or out-of-scope pools contain no accounts. Accounts use
 opaque process-local IDs, optional bounded aliases, used percentages, and nullable
-unknown values. OpenAI also includes plan, main/paused flags, effective switch
+unknown values. Paused, sign-in-required, or expired background CLI Anthropic accounts
+remain unknown without hiding healthy accounts in the same pool. OpenAI also includes plan, main/paused flags, effective switch
 threshold, and reset-credit expiration dates. Email addresses, raw account IDs,
 credentials, provider destinations, and upstream error text are never serialized.
 Duplicate main accounts are removed using the same email/plan/reset-window match
