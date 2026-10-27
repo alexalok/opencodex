@@ -873,8 +873,8 @@ unknown values. Paused, sign-in-required, or expired background CLI Anthropic ac
 remain unknown without hiding healthy accounts in the same pool. OpenAI also includes plan, main/paused flags, effective switch
 threshold, and reset-credit expiration dates. Email addresses, raw account IDs,
 credentials, provider destinations, and upstream error text are never serialized.
-Duplicate main accounts are removed using the same email/plan/reset-window match
-as the local tray, before private fields are discarded. IDs change on hub restart.
+Duplicate main accounts require matching private unmasked email, plan and reset window.
+Matching masked email labels alone never hide an account. IDs change on hub restart.
 
 The route uses existing quota readers. Those readers may refresh quota caches,
 plan metadata, OAuth credentials, and authentication health. It never selects,
