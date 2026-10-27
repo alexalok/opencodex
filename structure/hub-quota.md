@@ -10,6 +10,8 @@ credentials do not qualify. The grant schema in `src/config/schema/leaf-validato
 defaults to denied and degrades malformed values to false. Existing provider scope
 limits visible pools; nonempty model scope is rejected because quotas are account-wide.
 Admission, scope, role, and provider enablement are checked again after asynchronous reads.
+Private snapshot validators survive both provider reads; account generations and roster membership
+are rechecked synchronously immediately before final projection and publication.
 
 `src/server/management/oauth-account-routes.ts` adds grant-only PATCH to the existing
 key-management route. Rename, provider/model scope, and quota grant are validated before

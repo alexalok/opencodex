@@ -1,5 +1,5 @@
 import { createHmac, randomBytes } from "node:crypto";
-import { hubQuotaReaders, MAX_HUB_QUOTA_ACCOUNTS, type HubQuotaAccount, type HubQuotaReaders } from "./hub-quota-snapshot";
+import { hubQuotaReaders, MAX_HUB_QUOTA_ACCOUNTS, type HubQuotaAccount, type HubQuotaReaders, type HubQuotaSnapshot } from "./hub-quota-snapshot";
 import type { OcxConfig, OcxApiKeyEntry } from "../types";
 import { isAllowedRequestOrigin, resolveDataPlaneAdmissionSecret, type RequestPolicyView } from "./auth-cors";
 
@@ -71,8 +71,8 @@ export async function handleHubQuota(req: Request, config: OcxConfig, readers: H
   const scope = JSON.stringify([key.id, key.allowedProviders, key.allowedModels]);
   const states = providerNames.map(provider => enabled(config, key, provider));
   const sources = providerNames.map(provider => config.providers[provider]);
-  const results = await Promise.all(providerNames.map(async (provider, index) => {
-    if (!states[index]) return { enabled: false, accounts: [] };
+  const snapshots = await Promise.all(providerNames.map(async (provider, index): Promise<{ enabled: boolean; rows: HubQuotaSnapshot; error?: string }> => {
+    if (!states[index]) return { enabled: false, rows: [] };
     let timer: ReturnType<typeof setTimeout> | undefined;
     const controller = new AbortController();
     const signal = AbortSignal.any([req.signal, controller.signal]);
@@ -81,8 +81,8 @@ export async function handleHubQuota(req: Request, config: OcxConfig, readers: H
         readers[provider](config, signal),
         new Promise<never>((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error("Quota unavailable")); }, 20_000); }),
       ]);
-      return { enabled: true, accounts: project(provider, rows, config) };
-    } catch { return { enabled: true, accounts: [], error: "Quota unavailable" }; }
+      return { enabled: true, rows };
+    } catch { return { enabled: true, rows: [], error: "Quota unavailable" }; }
     finally { clearTimeout(timer); }
   }));
   // No await between this admission recheck and response publication.
@@ -92,6 +92,12 @@ export async function handleHubQuota(req: Request, config: OcxConfig, readers: H
   if (scope !== JSON.stringify([current.id, current.allowedProviders, current.allowedModels])
     || providerNames.some((provider, index) => states[index] !== enabled(config, current, provider)
       || sources[index] !== config.providers[provider])) return reply({ error: "Quota scope changed" }, 403);
+  const results = snapshots.map((snapshot, index) => {
+    try {
+      if (snapshot.error || snapshot.rows.isCurrent?.() === false) throw new Error("Quota unavailable");
+      return { enabled: snapshot.enabled, accounts: project(providerNames[index]!, snapshot.rows, config) };
+    } catch { return { enabled: snapshot.enabled, accounts: [], error: "Quota unavailable" }; }
+  });
   const body = { schemaVersion: 1, generatedAt: new Date().toISOString(), providers: { openai: results[0], anthropic: results[1] } };
   if (Buffer.byteLength(JSON.stringify(body)) > 256 * 1024) return reply({ error: "Quota unavailable" }, 503);
   const active = results.filter(result => result.enabled);
