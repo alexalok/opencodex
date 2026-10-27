@@ -290,3 +290,70 @@ test("Anthropic skipped account replacement still rejects pool snapshot", async 
   try { await expect(hubQuotaReaders.anthropic(config())).rejects.toThrow("Quota unavailable"); }
   finally { token.mockRestore(); roster.mockRestore(); }
 });
+
+
+test("publication rechecks Anthropic ownership after slower OpenAI read", async () => {
+  const { spyOn } = await import("bun:test");
+  const store = await import("../../src/oauth/store");
+  const { hubQuotaReaders } = await import("../../src/server/hub-quota-snapshot");
+  for (const mutation of ["remove", "replace"] as const) {
+    let credential = { access: `fixture-publish-${mutation}`, refresh: "fixture-refresh", expires: Date.now() + 600_000 };
+    let present = true;
+    const roster = spyOn(store, "getAccountSet").mockImplementation(() => ({ accounts: present ? [{ id: `hub-publish-${mutation}`, alias: "Retired", credential }] : [] }) as never);
+    const status = spyOn(store, "getAccountCredentialWithStatus").mockImplementation(() => ({ credential, paused: false, needsReauth: false }));
+    const fetch = spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ five_hour: { utilization: 33 } }));
+    let finish!: () => void;
+    const finished = new Promise<void>(resolve => { finish = resolve; });
+    try {
+      const response = await handleHubQuota(request(), config(), {
+        anthropic: async c => { const result = await hubQuotaReaders.anthropic(c); finish(); return result; },
+        openai: async () => {
+          await finished;
+          await new Promise(resolve => setTimeout(resolve, 0));
+          if (mutation === "remove") present = false;
+          else credential = { ...credential, access: "fixture-replaced-after-read" };
+          return [];
+        },
+      });
+      const body = await response.json();
+      expect(body.providers.anthropic).toEqual({ enabled: true, accounts: [], error: "Quota unavailable" });
+      expect(JSON.stringify(body)).not.toContain("Retired");
+      expect(body.providers.openai.error).toBeUndefined();
+    } finally { fetch.mockRestore(); status.mockRestore(); roster.mockRestore(); }
+  }
+});
+
+test("publication rechecks OpenAI credential, main generation and config roster after slower Anthropic read", async () => {
+  const { spyOn } = await import("bun:test");
+  const api = await import("../../src/codex/auth-api");
+  const store = await import("../../src/codex/account-store");
+  const main = await import("../../src/codex/main-account-cache");
+  const { hubQuotaReaders } = await import("../../src/server/hub-quota-snapshot");
+  for (const mutation of ["remove", "replace", "main"] as const) {
+    let generation = 1;
+    let mainLive = true;
+    const c = config(); c.codexAccounts = [{ id: "raw-secret-id", email: "person@example.test" }];
+    const snapshot = spyOn(api, "listCodexAuthAccountsSnapshot").mockResolvedValue({ accounts: [{ ...rows[0], hasCredential: false }], mainIdentityGeneration: 1 } as never);
+    const record = spyOn(store, "readCodexAccountRecord").mockImplementation(() => ({ generation }) as never);
+    const current = spyOn(main, "isMainAccountIdentityGenerationLive").mockImplementation(() => mainLive);
+    let finish!: () => void;
+    const finished = new Promise<void>(resolve => { finish = resolve; });
+    try {
+      const response = await handleHubQuota(request(), c, {
+        openai: async cfg => { const result = await hubQuotaReaders.openai(cfg); finish(); return result; },
+        anthropic: async () => {
+          await finished;
+          await new Promise(resolve => setTimeout(resolve, 0));
+          if (mutation === "remove") c.codexAccounts = [];
+          else if (mutation === "replace") generation++;
+          else mainLive = false;
+          return [];
+        },
+      });
+      const body = await response.json();
+      expect(body.providers.openai).toEqual({ enabled: true, accounts: [], error: "Quota unavailable" });
+      expect(JSON.stringify(body)).not.toContain("Work");
+      expect(body.providers.anthropic.error).toBeUndefined();
+    } finally { snapshot.mockRestore(); record.mockRestore(); current.mockRestore(); }
+  }
+});
