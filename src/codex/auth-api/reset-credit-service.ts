@@ -123,7 +123,7 @@ function safeResetCreditConsumeDto(input: unknown): { code: string } {
  * Throws on any auth or upstream failure; the caller treats a throw on consume as ambiguous.
  */
 export function createResetCreditWhamClient(config: OcxConfig, accountId: string): {
-  inspect: () => Promise<{ credits: { granted_at: string; expires_at: string }[] }>;
+  inspect: () => Promise<{ credits: { granted_at: string; expires_at: string }[]; available_count?: number }>;
   consume: (redeemRequestId: string) => Promise<{ code: string }>;
 } {
   const run = async <T>(operation: (auth: ResetCreditAuth) => Promise<T>): Promise<T> => {
@@ -140,7 +140,7 @@ export function createResetCreditWhamClient(config: OcxConfig, accountId: string
       if (!resp.ok) { await resp.body?.cancel().catch(() => {}); throw new Error(`upstream ${resp.status}`); }
       const parsed = await readResetCreditJson(resp, AbortSignal.timeout(8000));
       if (!parsed.ok) throw new Error("invalid upstream reset-credit response");
-      return { credits: safeResetCreditsDto(parsed.value).credits };
+      return safeResetCreditsDto(parsed.value);
     }),
     consume: redeemRequestId => run(async auth => {
       const resp = await fetch("https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume", {

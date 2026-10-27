@@ -828,3 +828,62 @@ ocx hub disable --revoke-clients --client-key <client-key-id> --json
 ```
 
 Repeat `--client-key` for several clients. With saved keys present, `--revoke-clients` without selected IDs refuses before changing settings. Unknown IDs also refuse. Only selected keys and their pending rotations are removed; output contains safe metadata rather than secrets. The command prints the restart step for the detected supervisor; it does not restart the proxy. Review `tailscale serve status` and other external frontends for mappings to old hub ports. Persisted settings and revocation apply to the running proxy after restart; Remote Link records and tunnels remain unchanged.
+
+
+## Read-only quota access for enrolled clients
+
+The pending `GET /v1/hub-quota` endpoint serves only the hub's OpenAI and Anthropic
+account pools. It requires the enrolled **data key** in `X-OpenCodex-API-Key` plus
+an explicit `allowQuotaRead: true` grant on that key. Administrator tokens,
+bearer-only credentials, environment admission tokens, and unauthenticated loopback
+requests cannot read this endpoint.
+
+New keys and enrollment receive no quota grant. An administrator must grant access
+separately through the existing management API. On the hub, use `GET /api/keys`
+with the administrator credential to find the client's key ID. Then send:
+
+```http
+PATCH /api/keys
+Content-Type: application/json
+X-OpenCodex-API-Key: <hub administrator credential>
+
+{"id":"<enrolled client key ID>","allowQuotaRead":true}
+```
+
+Send this request to the authenticated management origin or the hub's local
+management endpoint. Keep the administrator credential on the operator's machine;
+only the enrolled data key belongs in the tray client. `GET /api/keys` reports the
+grant without revealing the key. Revoke with the same PATCH and
+`"allowQuotaRead":false`. Key rotation preserves the grant; enrollment and rotation
+never add it automatically. A literal JSON boolean is required. The equivalent
+persisted configuration is `apiKeys[i].allowQuotaRead`, default false; malformed
+values load as false.
+
+The quota endpoint accepts no query parameters and only GET. Responses carry
+`Cache-Control: no-store`. A configured `allowedProviders` restricts visible pools;
+absent or empty provider scope means all supported pools. Nonempty `allowedModels`
+and malformed scopes are rejected because account-wide quotas cannot safely be
+projected to model scope. Existing inference scope enforcement remains unchanged.
+
+Schema version 1 contains `generatedAt` and `providers.openai` /
+`providers.anthropic`, each with `enabled`, `accounts`, and an optional fixed
+`error` string. Disabled or out-of-scope pools contain no accounts. Accounts use
+opaque process-local IDs, optional bounded aliases, used percentages, and nullable
+unknown values. OpenAI also includes plan, main/paused flags, effective switch
+threshold, and reset-credit expiration dates. Email addresses, raw account IDs,
+credentials, provider destinations, and upstream error text are never serialized.
+Duplicate main accounts are removed using the same email/plan/reset-window match
+as the local tray, before private fields are discarded. IDs change on hub restart.
+
+The route uses existing quota readers. Those readers may refresh quota caches,
+plan metadata, OAuth credentials, and authentication health. It never selects,
+pauses, removes, or resets accounts, redeems credits, or changes account settings.
+Reset-credit read failures retain a null expiration list rather than claiming zero
+credits. Provider failures are independent. Reads are bounded to 128 accounts per
+provider, 64 expiration dates per account, a 20-second provider wait, and a 256 KiB
+response. Existing upstream readers retain their own deadlines.
+
+Status codes: 401 missing/invalid configured data key; 403 missing grant or unsupported
+scope; 404 non-hub or older server; 405 non-GET; 400 query parameters; 503 every enabled
+provider unavailable or response too large. Authentication, grants, scope, and provider
+enablement are checked again after asynchronous reads, before publication.
