@@ -1,3 +1,4 @@
+import { isCodexQuotaIdentityCurrent, sameCodexQuotaIdentity } from "../codex/auth-api/quota-identity";
 import { readCodexAccountRecord } from "../codex/account-store";
 import { createResetCreditWhamClient, listCodexAuthAccountsSnapshot } from "../codex/auth-api";
 import { isMainAccountIdentityGenerationLive } from "../codex/main-account-cache";
@@ -35,13 +36,15 @@ export const hubQuotaReaders: HubQuotaReaders = {
     signal?.throwIfAborted();
     if ((config.codexAccounts?.length ?? 0) >= MAX_HUB_QUOTA_ACCOUNTS) throw new Error("Quota unavailable");
     const snapshot = await listCodexAuthAccountsSnapshot(config);
+    const pool = snapshot.accounts.filter(account => !account.isMain);
+    const accounts = snapshot.accounts.filter(account => !account.isMain || !pool.some(other => sameCodexQuotaIdentity(account, other)));
     const roster = JSON.stringify(config.codexAccounts?.map(account => account.id) ?? []);
     const generations = new Map(snapshot.accounts.filter(account => !account.isMain).map(account => [account.id, readCodexAccountRecord(account.id)?.generation]));
     // Bound upstream concurrency; expiration failure preserves independently available quota.
     const rows: HubQuotaAccount[] = [];
-    for (let offset = 0; offset < snapshot.accounts.length; offset += 8) {
+    for (let offset = 0; offset < accounts.length; offset += 8) {
       signal?.throwIfAborted();
-      const batch = await Promise.all(snapshot.accounts.slice(offset, offset + 8).map(async account => {
+      const batch = await Promise.all(accounts.slice(offset, offset + 8).map(async account => {
         let resetCreditExpirations: string[] | null = null;
         if (account.hasCredential) {
           try {
@@ -55,6 +58,7 @@ export const hubQuotaReaders: HubQuotaReaders = {
     }
     signal?.throwIfAborted();
     const isCurrent = () => isMainAccountIdentityGenerationLive(snapshot.mainIdentityGeneration)
+      && snapshot.accounts.every(isCodexQuotaIdentityCurrent)
       && roster === JSON.stringify(config.codexAccounts?.map(account => account.id) ?? [])
       && rows.every(row => row.isMain || (config.codexAccounts?.some(account => account.id === row.id)
         && generations.get(row.id) === readCodexAccountRecord(row.id)?.generation));

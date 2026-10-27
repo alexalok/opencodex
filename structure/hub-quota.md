@@ -19,7 +19,9 @@ publishing one replacement entry. Issuance never grants access; rotation preserv
 
 `src/server/hub-quota-snapshot.ts` reads only OpenAI and primary Anthropic pools.
 OpenAI rows preserve pause state and per-account switch-threshold overrides, including zero.
-Main duplicates are removed by email, plan and reset-window agreement before projection.
+Main duplicates require private unmasked email, plan and reset-window agreement before projection.
+`src/codex/auth-api/quota-identity.ts` captures immutable keyed fingerprints and pool-generation
+validators when management DTOs are created; masked emails never establish identity.
 `src/codex/auth-api/reset-credit-service.ts` retains available count so zero hides historical expiry rows.
 Its normal quota and credential reads may refresh caches, plan metadata, or OAuth health;
 the endpoint never selects, pauses, removes, or resets accounts, or redeems credits.

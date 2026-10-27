@@ -10,9 +10,9 @@ function config(): OcxConfig { return { runtimeRole: "hub", port: 0, defaultProv
 const request = () => new Request("http://localhost/v1/hub-quota", { headers: { "x-opencodex-api-key": key } });
 const rows = [{ id: "raw-secret-id", alias: "Work", email: "person@example.test", plan: "plus", isMain: false, paused: true, quota: { weeklyPercent: 23, weeklyResetAt: 100 }, resetCreditExpirations: ["2027-01-01T00:00:00Z"] },
   { id: "__main__", email: "person@example.test", plan: "plus", isMain: true, paused: false, quota: { weeklyPercent: 24, weeklyResetAt: 102 } }];
-const readers = { openai: async () => rows, anthropic: async () => [{ id: "raw-anthropic", email: "person@example.test", quota: { fiveHourPercent: 8, weeklyPercent: 19 } }] };
+const readers = { openai: async () => rows.slice(0, 1), anthropic: async () => [{ id: "raw-anthropic", email: "person@example.test", quota: { fiveHourPercent: 8, weeklyPercent: 19 } }] };
 
-test("projects only safe quota fields and removes duplicate main within reset tolerance", async () => {
+test("projects only safe quota fields from provider snapshots", async () => {
   const res = await handleHubQuota(request(), config(), readers);
   const body = await res.json();
   expect(body.providers.openai.accounts).toHaveLength(1);
@@ -77,7 +77,7 @@ test("strict boolean grant and non-hub role fail closed", async () => {
   expect((await handleHubQuota(request(), c, readers)).status).toBe(404);
 });
 
-test("duplicate-main filtering requires email, plan and matching reset window", async () => {
+test("projection never infers identity from reader email fields", async () => {
   for (const main of [
     { ...rows[1], email: "different@example.test" },
     { ...rows[1], plan: "pro" },
@@ -356,4 +356,59 @@ test("publication rechecks OpenAI credential, main generation and config roster 
       expect(body.providers.anthropic.error).toBeUndefined();
     } finally { snapshot.mockRestore(); record.mockRestore(); current.mockRestore(); }
   }
+});
+
+
+test("real masked account snapshots keep colliding emails distinct and dedupe only raw identity matches", async () => {
+  const { spyOn } = await import("bun:test");
+  const main = await import("../../src/codex/main-account-cache");
+  const store = await import("../../src/codex/account-store");
+  const quota = await import("../../src/codex/quota");
+  const api = await import("../../src/codex/auth-api");
+  const { hubQuotaReaders } = await import("../../src/server/hub-quota-snapshot");
+  const { runPassiveRead } = await import("../../src/lib/passive-read");
+  const mainInfo = spyOn(main, "getMainAccountInfoCache").mockReturnValue({ email: "alice@example.test", plan: "plus", quota: { weeklyPercent: 24, weeklyResetAt: 100 } } as never);
+  const stored = spyOn(store, "getCodexAccountCredential").mockReturnValue({ accessToken: "fixture-dedupe-token" } as never);
+  const poolQuota = spyOn(quota, "getAccountQuota").mockReturnValue({ weeklyPercent: 23, weeklyResetAt: 102, updatedAt: Date.now() });
+  const credits = spyOn(api, "createResetCreditWhamClient").mockReturnValue({ inspect: async () => ({ credits: [] }) } as never);
+  try {
+    for (const [email, plan, reset, count] of [
+      ["annie@example.test", "plus", 102, 2],
+      ["alice@example.test", "plus", 102, 1],
+      [" ALICE@example.test ", "PLUS", 102, 1],
+      ["alice@example.test", "pro", 102, 2],
+      ["alice@example.test", "plus", 103, 2],
+      ["alice@example.test", "plus", 0, 2],
+    ] as const) {
+      const c = config(); c.codexAccounts = [{ id: "hub-private-identity", email, plan }];
+      poolQuota.mockReturnValue({ weeklyPercent: 23, weeklyResetAt: reset, updatedAt: Date.now() });
+      const snapshot = await runPassiveRead(() => api.listCodexAuthAccountsSnapshot(c));
+      if (email === "annie@example.test") expect(snapshot.accounts[0]!.email).toBe(snapshot.accounts[1]!.email);
+      expect(JSON.stringify(snapshot)).not.toMatch(/alice@|annie@/);
+      const response = await runPassiveRead(() => handleHubQuota(request(), c, { openai: hubQuotaReaders.openai, anthropic: async () => [] }));
+      const body = await response.json();
+      expect(body.providers.openai.accounts).toHaveLength(count);
+      expect(JSON.stringify(body)).not.toMatch(/alice|annie|example\.test|identity/i);
+    }
+  } finally { mainInfo.mockRestore(); stored.mockRestore(); poolQuota.mockRestore(); credits.mockRestore(); }
+});
+
+
+test("OpenAI DTO ownership survives replacement before snapshot caller resumes", async () => {
+  const { spyOn } = await import("bun:test");
+  const api = await import("../../src/codex/auth-api");
+  const { poolAccountDto } = await import("../../src/codex/auth-api/account-list");
+  const store = await import("../../src/codex/account-store");
+  const { captureMainAccountIdentityGeneration } = await import("../../src/codex/main-account-cache");
+  const { hubQuotaReaders } = await import("../../src/server/hub-quota-snapshot");
+  let generation = 1;
+  const c = config(); c.codexAccounts = [{ id: "hub-dto-generation", email: "alice@example.test", plan: "plus" }];
+  const record = spyOn(store, "readCodexAccountRecord").mockImplementation(() => ({ generation }) as never);
+  const snapshot = spyOn(api, "listCodexAuthAccountsSnapshot").mockImplementation(async () => {
+    const dto = poolAccountDto(c, c.codexAccounts![0]!, { quota: { weeklyPercent: 42, weeklyResetAt: 100, updatedAt: Date.now() }, needsReauth: false }, false, false, 0, true);
+    generation++;
+    return { accounts: [dto], mainIdentityGeneration: captureMainAccountIdentityGeneration() };
+  });
+  try { await expect(hubQuotaReaders.openai(c)).rejects.toThrow("Quota unavailable"); }
+  finally { snapshot.mockRestore(); record.mockRestore(); }
 });
