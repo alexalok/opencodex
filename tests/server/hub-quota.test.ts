@@ -248,3 +248,45 @@ test("Anthropic hub quota binds bearer and ownership from one post-refresh accou
   try { await expect(fetchAnthropicHubAccountQuota("hub-one-snapshot")).rejects.toThrow("Quota unavailable"); }
   finally { token.mockRestore(); stored.mockRestore(); roster.mockRestore(); status.mockRestore(); fetch.mockRestore(); }
 });
+
+
+test("Anthropic unavailable accounts preserve healthy pool quotas", async () => {
+  const { spyOn } = await import("bun:test");
+  const store = await import("../../src/oauth/store");
+  const { hubQuotaReaders } = await import("../../src/server/hub-quota-snapshot");
+  const credential = { access: "fixture-mixed-healthy", refresh: "fixture-refresh", expires: Date.now() + 600_000 };
+  const accounts = [
+    { id: "hub-mixed-healthy", credential },
+    { id: "hub-mixed-paused", credential, paused: true },
+    { id: "hub-mixed-reauth", credential, needsReauth: true },
+    { id: "hub-mixed-cli", credential: { ...credential, expires: 1, source: "local-cli" } },
+  ];
+  const roster = spyOn(store, "getAccountSet").mockImplementation(() => ({ accounts, activeAccountId: accounts[0]!.id }) as never);
+  const status = spyOn(store, "getAccountCredentialWithStatus").mockImplementation((_provider, id) => {
+    const row = accounts.find(account => account.id === id)!;
+    return { credential: row.credential, paused: row.paused === true, needsReauth: row.needsReauth === true } as never;
+  });
+  const fetch = spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ five_hour: { utilization: 12 }, seven_day: { utilization: 20 } }));
+  try {
+    const result = await hubQuotaReaders.anthropic(config());
+    expect(result).toHaveLength(4);
+    expect(result[0]!.quota).toMatchObject({ fiveHourPercent: 12, weeklyPercent: 20 });
+    expect(result.slice(1).map(row => row.quota)).toEqual([null, null, null]);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  } finally { fetch.mockRestore(); status.mockRestore(); roster.mockRestore(); }
+});
+
+test("Anthropic skipped account replacement still rejects pool snapshot", async () => {
+  const { spyOn } = await import("bun:test");
+  const store = await import("../../src/oauth/store");
+  const cache = await import("../../src/providers/quota/account-cache");
+  const { hubQuotaReaders } = await import("../../src/server/hub-quota-snapshot");
+  let credential = { access: "fixture-skipped-old", refresh: "fixture-refresh", expires: 1 };
+  const roster = spyOn(store, "getAccountSet").mockImplementation(() => ({ accounts: [{ id: "hub-skipped-race", credential, paused: true }] }) as never);
+  const token = spyOn(cache, "getTokenForAccountQuotaProbe").mockImplementation(async () => {
+    credential = { ...credential, access: "fixture-skipped-new" };
+    throw new Error("account is paused; quota probe skipped");
+  });
+  try { await expect(hubQuotaReaders.anthropic(config())).rejects.toThrow("Quota unavailable"); }
+  finally { token.mockRestore(); roster.mockRestore(); }
+});

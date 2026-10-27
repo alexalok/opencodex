@@ -10,11 +10,24 @@ import { fetchAnthropicUsageQuota } from "./vendor-probes-oauth";
 const hubAnthropicQuotaCache = new Map<string, { generation: string; ts: number; quota: ProviderQuota | null }>();
 
 export async function fetchAnthropicHubAccountQuota(accountId: string): Promise<ProviderAccountQuota> {
-  const token = await getTokenForAccountQuotaProbe("anthropic", accountId);
   const currentRow = () => getAccountSet("anthropic")?.accounts.find(account => account.id === accountId);
   const identity = (row: ProviderAccount | undefined) => row && !row.paused && !row.needsReauth
     ? JSON.stringify([credentialGeneration(row.credential), row.loginId, row.addedAt, captureProviderAccountQuotaEpoch("anthropic")])
     : undefined;
+  // A skipped/failed token read is unknown only while its original owner still exists.
+  const before = currentRow();
+  const ownership = (row: ProviderAccount | undefined) => row
+    ? JSON.stringify([credentialGeneration(row.credential), row.loginId, row.addedAt, captureProviderAccountQuotaEpoch("anthropic")]) : undefined;
+  const original = ownership(before);
+  let token: string;
+  try { token = await getTokenForAccountQuotaProbe("anthropic", accountId); }
+  catch {
+    const isCurrent = () => original !== undefined && ownership(currentRow()) === original;
+    if (!isCurrent()) throw new Error("Quota unavailable");
+    const unavailable: ProviderAccountQuota = { accountId, quota: null, unavailable: true };
+    Object.defineProperty(unavailable, "isCurrent", { value: isCurrent });
+    return unavailable;
+  }
   // Bind the exact dispatched bearer and ownership to one store snapshot after renewal.
   const row = currentRow();
   if (!row || row.credential.access !== token) throw new Error("Quota unavailable");
