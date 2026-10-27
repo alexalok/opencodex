@@ -26,6 +26,8 @@ the endpoint never selects, pauses, removes, or resets accounts, or redeems cred
 entering the pool's cooldown-recovery workflow. The actual post-refresh bearer and ownership
 come from one account snapshot. Cache and publication are fenced by credential generation,
 login identity, added time, quota epoch, pause state, and reauthentication state.
+Paused, reauthentication-required, and expired background CLI rows report unknown quota;
+healthy accounts remain visible, and even unknown rows retain ownership checks.
 Underlying usage flights are credential-bound; stale entries cannot cross a same-slot login.
 
 Schema version 1 exposes process-local opaque IDs, bounded aliases, plan, used percentages,
