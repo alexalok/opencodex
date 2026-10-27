@@ -54,6 +54,7 @@ The wire surfaces a client actually talks to.
 | [`hub-quota.md`](hub-quota.md) | Explicit quota grants, bounded account projection, and credential-owned hub quota reads. |
 | [`remote-workspace.md`](remote-workspace.md) | Opt-in workspace identity, executor grants, runtime adapters, management and dashboard integration. |
 | [`remote-link.md`](remote-link.md) | SSH machine-link building blocks: OpenSSH argument policy, ssh_config candidates, tunnel lifecycle reducer, the private link store, and standalone pairing-grant delivery. |
+| [`ops/fork-release-policy.md`](ops/fork-release-policy.md) | Local release version validation for explicit forks and backport branches. |
 
 ### Tier 4 — Providers and adapters
 
@@ -133,6 +134,7 @@ A source area can be described by more than one doc, because these docs are orga
 | `gui/` | [`overview.md`](overview.md)<br>[`gui-and-management-api.md`](gui-and-management-api.md)<br>[`dashboard-and-usage.md`](dashboard-and-usage.md)<br>[`design-methodology.md`](design-methodology.md)<br>[`companion.md`](companion.md) |
 | `scripts/` | [`overview.md`](overview.md)<br>[`ops/docs-and-release.md`](ops/docs-and-release.md) |
 | `scripts/generate-ocx-skill-surface.ts` | [`cli-management.md`](cli-management.md) |
+| `scripts/lib/release-version-policy.ts` | [`ops/fork-release-policy.md`](ops/fork-release-policy.md) |
 | `skills/ocx/` | [`cli-management.md`](cli-management.md) |
 | `src/adapters/` | [`runtime.md`](runtime.md)<br>[`transports/byte-accounting.md`](transports/byte-accounting.md)<br>[`transports/responses-wire-shapes.md`](transports/responses-wire-shapes.md)<br>[`transports/inventory.md`](transports/inventory.md)<br>[`data-planes/inbound-compat.md`](data-planes/inbound-compat.md)<br>[`providers-and-adapters.md`](providers-and-adapters.md)<br>[`providers/cursor.md`](providers/cursor.md)<br>[`providers/chat-compat.md`](providers/chat-compat.md)<br>[`adapters/registry.md`](adapters/registry.md) |
 | `src/bridge.ts` | [`transports/responses.md`](transports/responses.md) |
@@ -208,6 +210,7 @@ A source area can be described by more than one doc, because these docs are orga
 | `src/vision/` | [`runtime.md`](runtime.md)<br>[`gui-and-management-api.md`](gui-and-management-api.md) |
 | `src/web-search/` | [`runtime.md`](runtime.md)<br>[`providers-and-adapters.md`](providers-and-adapters.md) |
 | `tests/` | [`ops/test-sandbox-cleanup.md`](ops/test-sandbox-cleanup.md) |
+| `tests/ci-workflows/release-version-line.test.ts` | [`ops/fork-release-policy.md`](ops/fork-release-policy.md) |
 
 ### Not described by any doc
 

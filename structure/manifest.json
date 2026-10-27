@@ -164,7 +164,10 @@
       "tier": 2,
       "title": "Effort-clamp observations",
       "scope": "Persisted effort-clamp observation identity and idempotent sync notices.",
-      "documents": ["src/codex/runtime.ts", "src/codex/catalog/effort.ts"]
+      "documents": [
+        "src/codex/runtime.ts",
+        "src/codex/catalog/effort.ts"
+      ]
     },
     {
       "path": "subagents.md",
@@ -227,16 +230,16 @@
       ]
     },
     {
-        "path": "transports/policy-fallback.md",
-        "tier": 3,
-        "title": "Policy Candidate Fallback",
-        "scope": "Original policy authorization, concrete candidate retries and physical destination deduplication.",
-        "documents": [
-          "src/server/"
-        ]
-      },
-      {
-        "path": "transports/responses-spend.md",
+      "path": "transports/policy-fallback.md",
+      "tier": 3,
+      "title": "Policy Candidate Fallback",
+      "scope": "Original policy authorization, concrete candidate retries and physical destination deduplication.",
+      "documents": [
+        "src/server/"
+      ]
+    },
+    {
+      "path": "transports/responses-spend.md",
       "tier": 3,
       "title": "Responses Spend Reservations",
       "scope": "Credential-hop and durable spend reservations, and what a spent budget tells the client.",
@@ -309,7 +312,9 @@
       "tier": 4,
       "title": "Anthropic Account Thresholds",
       "scope": "Account-owned usage thresholds, inheritance, routing boundaries and durable policy changes.",
-      "documents": ["src/oauth/"]
+      "documents": [
+        "src/oauth/"
+      ]
     },
     {
       "path": "providers-and-adapters.md",
@@ -707,6 +712,16 @@
       "scope": "Test-runner home and case-scoped lifecycle teardown ordering.",
       "documents": [
         "tests/"
+      ]
+    },
+    {
+      "path": "ops/fork-release-policy.md",
+      "tier": 3,
+      "title": "Fork release version checks",
+      "scope": "Local release version validation for explicit forks and backport branches.",
+      "documents": [
+        "scripts/lib/release-version-policy.ts",
+        "tests/ci-workflows/release-version-line.test.ts"
       ]
     }
   ],
