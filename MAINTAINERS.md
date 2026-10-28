@@ -1,5 +1,13 @@
 # Maintainers
 
+For `alexalok/opencodex`, the owner-directed fork workflow in
+[`AGENTS.md`](./AGENTS.md#git-workflow-for-alexalokopencodex) governs integration:
+PRs into current `dev`, upstream synchronization before merges, and PRs from
+`backports/vX.Y.Z/*` into `releases/vX.Y.Z`. There is no fork `main` or separate
+stable line. The owner may explicitly authorize fork integration after validation
+and security review. The upstream roster and promotion rules below describe
+`lidge-jun/opencodex`; they do not grant permissions in this fork.
+
 This document lists the people responsible for maintaining opencodex and defines the project's
 review and merge policy.
 
