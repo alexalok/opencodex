@@ -2,6 +2,44 @@
 
 Guidance for AI agents (and humans) working on or reviewing this repository.
 
+## Git workflow for alexalok/opencodex
+
+These rules govern this repository and take precedence over the upstream branch
+and promotion policy reproduced below. There is no separate stable integration
+line: this repository has current `dev` and versioned backports.
+
+- Clone the fork using `git clone --branch dev --single-branch` with
+  `https://github.com/alexalok/opencodex.git`. Never clone, create, or check out a
+  `main` branch in this fork. `dev` is the default branch.
+- All development and maintenance changes land through pull requests targeting
+  this fork's `dev`; never push commits directly to `dev`.
+- Before merging any PR, fetch upstream `lidge-jun/opencodex`'s `dev` and ensure
+  it is an ancestor of fork `dev`. If it is not, integrate the upstream sync
+  through a PR first. The sync PR itself must include the current upstream tip;
+  preserve that ancestry with a merge commit when integrating a sync PR.
+- For a backport, create `releases/vX.Y.Z` from the selected upstream release
+  tag and `backports/vX.Y.Z/<feature_name>` from that release branch. Git branch
+  names have no leading slash. Backport PRs target that `releases/vX.Y.Z`
+  branch; this is the only exception to the `dev` target rule.
+- Increase the package patch version for each backported feature and update
+  the version mirrors together. Keep the release branch name fixed: for example,
+  backports to `releases/v2.90.0` produce `2.90.1`, then `2.90.2`, on that same
+  branch. Record the source PR or commits and preserve contributor attribution.
+- Local installations must be built from a merged commit on a `releases/*`
+  branch. Do not install from `dev` or an unmerged feature branch. Select the
+  newest published, non-prerelease upstream release at least seven full days old
+  when starting a new local installation line. Preserve configuration and a
+  verified rollback path during upgrades.
+- Keep `dev`, `alex/*`, and active `releases/*` branches. Delete merged
+  `backports/*` branches after their commits are retained on the release line.
+- Do not open upstream PRs unless the user explicitly requests one. Any such
+  PR must target upstream `dev` only; never upstream `main` or `preview`.
+
+The fork owner's explicit integration request authorizes merging fork PRs after
+validation. It does not waive unresolved findings or security review. GitHub
+branch protection must be checked separately; inherited upstream descriptions
+do not prove that equivalent protection is configured on this fork.
+
 ## What this project is
 
 opencodex (`ocx`) is a universal provider proxy for OpenAI Codex and Claude Code:
@@ -393,6 +431,9 @@ than nudged.
   jobs, to any workflow. PRs that change this policy will be closed.
 
 ## Branch policy
+
+The following describes **upstream**. For `alexalok/opencodex`, use the fork
+workflow above, including its prohibition on `main` and its backport PR targets.
 
 - `dev` — the single integration branch and the target for every pull request.
 - `main` — release branch. It only moves by maintainer-controlled promotion

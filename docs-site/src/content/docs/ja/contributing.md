@@ -3,6 +3,8 @@ title: コントリビュート
 description: opencodex の開発環境、構成、規約、プロバイダーとアダプターの追加方法。
 ---
 
+For `alexalok/opencodex`, follow the [fork workflow](https://github.com/alexalok/opencodex/blob/dev/AGENTS.md#git-workflow-for-alexalokopencodex): PRs into current `dev`, or versioned backports into `releases/vX.Y.Z`. Do not clone or create `main`. The upstream contribution and promotion guidance below describes `lidge-jun/opencodex`.
+
 ## セットアップ
 
 ```bash
