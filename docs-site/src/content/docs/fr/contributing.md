@@ -3,6 +3,8 @@ title: Contribuer
 description: Développez opencodex — installation, structure, conventions et ajout d’un fournisseur ou d’un adaptateur.
 ---
 
+For `alexalok/opencodex`, follow the [fork workflow](https://github.com/alexalok/opencodex/blob/dev/AGENTS.md#git-workflow-for-alexalokopencodex): PRs into current `dev`, or versioned backports into `releases/vX.Y.Z`. Do not clone or create `main`. The upstream contribution and promotion guidance below describes `lidge-jun/opencodex`.
+
 ## Configuration
 
 Le développement depuis les sources exige la CLI `bun` dans votre `PATH`. Le paquet npm publié fournit son propre
@@ -15,7 +17,7 @@ bun install
 bun run setup:hooks  # retirer les anciens hooks gérés pre-push et post-merge
 bun run dev:proxy    # proxy API in dev mode
 bun run dev:gui      # dashboard dev server (another terminal)
-bun run typecheck    # bun x tsc --noEmit
+bun run typecheck    # bun check --no-script --noEmit
 bun run test        # suite complète (par défaut)
 ```
 
@@ -163,7 +165,7 @@ du dépôt et des chemins sensibles du point de vue de la sécurité est déclar
 
 ## Conventions
 
-- **Modules ES uniquement** (`import`/`export`), TypeScript, mode `strict`. Gardez `bun x tsc --noEmit` propre.
+- **Modules ES uniquement** (`import`/`export`), TypeScript, mode `strict`. Gardez `bun run typecheck` propre.
 - **Environ 500 lignes au maximum par fichier** — répartissez le code par responsabilité. Les services auxiliaires `web-search/` et `vision/` sont
   bons exemples de petits modules ciblés derrière un seul `index.ts`).
 - **Gérer les erreurs asynchrones aux frontières** — les services auxiliaires ne propagent jamais d’exception dans le

@@ -10,6 +10,42 @@ describe("enforce-pr-target workflow", () => {
   const workflowPath = path.join(__dirname, "../workflows/enforce-pr-target.yml");
   const workflow = fs.readFileSync(workflowPath, "utf8");
 
+  it("accepts matching same-repository backports only in the configured fork", () => {
+    const start = workflow.indexOf("const releaseTarget =");
+    const end = workflow.indexOf("\n\n", start);
+    assert.ok(start > 0 && end > start);
+    const targetPolicy = new Function("owner", "repo", "pr", "ALLOWED_BASES",
+      workflow.slice(start, end) + "\nreturn {baseAllowed, allowedBases};");
+    const { collectPrQualityFailures } = require("./pr-quality.cjs");
+    const accepts = (owner, repo, pr, bases) => {
+      const {baseAllowed, allowedBases} = targetPolicy(owner, repo, pr, bases);
+      const failures = collectPrQualityFailures({
+        baseRef: pr.base.ref, allowedBases, title: "fix: scoped backport",
+        body: "", authorPermission: "write", changedFilePaths: [],
+      });
+      assert.equal(!failures.some(failure => failure.code === "wrong_base"), baseAllowed);
+      return baseAllowed;
+    };
+    assert.match(workflow, /collectPrQualityFailures\(\{\s+baseRef: pr\.base\.ref,\s+allowedBases,/);
+    const pr = (base, head, headRepo = "alexalok/opencodex") => ({
+      base: { ref: base, repo: { full_name: "alexalok/opencodex" } },
+      head: { ref: head, repo: { full_name: headRepo } },
+    });
+    assert.equal(accepts("alexalok", "opencodex", pr("dev", "alex/fix"), ["dev"]), true);
+    assert.equal(accepts("alexalok", "opencodex", pr("releases/v2.90.0", "backports/v2.90.0/search"), ["dev"]), true);
+    for (const candidate of [
+      pr("releases/v2.90.0", "backports/v2.89.0/search"),
+      pr("releases/v2.90.0", "backports/v2.90.0/"),
+      pr("releases/v2.90.0", "alex/search"),
+      pr("releases/v2.90.0", "backports/v2.90.0/search", "outsider/opencodex"),
+      pr("releases/v2.90.0/extra", "backports/v2.90.0/search"),
+      pr("main", "alex/fix"),
+    ]) assert.equal(accepts("alexalok", "opencodex", candidate, ["dev"]), false);
+    assert.equal(accepts("lidge-jun", "opencodex", pr("releases/v2.90.0", "backports/v2.90.0/search"), ["dev"]), false);
+    assert.match(workflow, /if \(!isForkRepository\) \{\s+const \{ data: mainCompare \}/);
+    assert.match(workflow, /if \(!baseAllowed && !isForkRepository\)/);
+  });
+
   it("uses pull_request_target without checking out PR head code", () => {
     assert.match(workflow, /pull_request_target:/);
     assert.doesNotMatch(
@@ -94,7 +130,9 @@ describe("enforce-pr-target workflow", () => {
 
   it("writes exactly one consolidated comment via a single upsert helper", () => {
     assert.match(workflow, /GATE_MARKER,/);
-    assert.match(workflow, /comment\.body\?\.includes\(GATE_MARKER\)/);
+    // The gate comment is the bot comment that starts with GATE_MARKER; a
+    // marker echoed inside another comment does not classify it.
+    assert.match(workflow, /comments\.find\(isGateComment\)/);
     assert.match(workflow, /upsertGateComment/);
     assert.match(workflow, /buildGateCommentBody/);
     // No legacy two-comment write path remains.

@@ -1,5 +1,7 @@
 # Contributing
 
+For `alexalok/opencodex`, follow the [fork workflow](AGENTS.md#git-workflow-for-alexalokopencodex): current `dev`, PR-only integration, and versioned backports. Do not create or clone `main`. The upstream contribution and promotion guidance below applies to `lidge-jun/opencodex`.
+
 Thanks for helping with opencodex.
 
 - Start with the canonical guide: [Contributing](https://opencodex.me/contributing/)
@@ -69,9 +71,11 @@ A ready-for-review PR is the author's claim that the change is complete, underst
 
 ## Local validation and hooks
 
-The suite uses Bun 1.4.3 (`testRunnerBun`) while the shipped runtime is 1.4.2.
-`scripts/test.ts` finds a 1.4.3 binary on PATH or in `~/.bun/bin`, or uses
+The suite uses Bun 1.4.4 (`testRunnerBun`) while the shipped runtime is 1.4.4.
+`scripts/test.ts` finds a 1.4.4 binary on PATH or in `~/.bun/bin`, or uses
 `OCX_TEST_RUNNER_BUN`; install that version locally if it is missing.
+The roles remain independently checked even when their versions match. Promotion requires
+a successful full cross-platform `lane=all` run on the candidate head.
 
 Run `bun run test` before review readiness. If the full local suite is too costly
 for the task or available resources, run at least focused regression tests for

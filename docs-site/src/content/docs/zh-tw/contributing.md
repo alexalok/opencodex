@@ -3,6 +3,8 @@ title: 貢獻指南
 description: opencodex 的開發環境、結構、約定，以及新增 provider 或 adapter 的方法。
 ---
 
+For `alexalok/opencodex`, follow the [fork workflow](https://github.com/alexalok/opencodex/blob/dev/AGENTS.md#git-workflow-for-alexalokopencodex): PRs into current `dev`, or versioned backports into `releases/vX.Y.Z`. Do not clone or create `main`. The upstream contribution and promotion guidance below describes `lidge-jun/opencodex`.
+
 ## 環境搭建
 
 ```bash
@@ -12,7 +14,7 @@ bun install
 bun run setup:hooks  # 移除舊的受管理 pre-push 與 post-merge
 bun run dev:proxy    # 開發模式代理 API
 bun run dev:gui      # 儀表板 dev 伺服器（另一個終端）
-bun run typecheck    # bun x tsc --noEmit
+bun run typecheck    # bun check --no-script --noEmit
 bun run test        # 完整測試套件（預設）
 ```
 
@@ -132,7 +134,7 @@ bun run release:watch               # 觀察最新的 Release workflow run
 ## 約定
 
 - **僅使用 ES Modules**（`import`/`export`）、TypeScript 和 `strict` mode。保持
-  `bun x tsc --noEmit` 無報錯。
+  `bun run typecheck` 無報錯。
 - **每個檔案最多約 500 行** —— 按職責拆分。`web-search/` 和 `vision/` sidecar 是很好的例子：
   小而專注的 module 位於單一 `index.ts` 之後。
 - **在邊界處理非同步錯誤** —— sidecar 不會把例外拋進請求路徑，而會降級成合適的 marker。

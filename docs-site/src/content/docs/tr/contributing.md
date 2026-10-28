@@ -3,6 +3,8 @@ title: Katkıda Bulunma
 description: opencodex geliştirme — kurulum, düzen, kurallar ve yeni bir sağlayıcı veya adaptör ekleme.
 ---
 
+For `alexalok/opencodex`, follow the [fork workflow](https://github.com/alexalok/opencodex/blob/dev/AGENTS.md#git-workflow-for-alexalokopencodex): PRs into current `dev`, or versioned backports into `releases/vX.Y.Z`. Do not clone or create `main`. The upstream contribution and promotion guidance below describes `lidge-jun/opencodex`.
+
 ## Kurulum
 
 Kaynak kod üzerinde geliştirme yapmak için `PATH` ortam değişkeninizde `bun` CLI
@@ -17,7 +19,7 @@ bun install
 bun run setup:hooks  # eski yönetilen pre-push ve post-merge kancalarını kaldır
 bun run dev:proxy    # geliştirme modunda proxy API
 bun run dev:gui      # kontrol paneli geliştirme sunucusu (başka bir terminalde)
-bun run typecheck    # bun x tsc --noEmit
+bun run typecheck    # bun check --no-script --noEmit
 bun run test        # tam test paketi (varsayılan)
 ```
 

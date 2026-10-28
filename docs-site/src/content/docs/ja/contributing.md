@@ -3,6 +3,8 @@ title: コントリビュート
 description: opencodex の開発環境、構成、規約、プロバイダーとアダプターの追加方法。
 ---
 
+For `alexalok/opencodex`, follow the [fork workflow](https://github.com/alexalok/opencodex/blob/dev/AGENTS.md#git-workflow-for-alexalokopencodex): PRs into current `dev`, or versioned backports into `releases/vX.Y.Z`. Do not clone or create `main`. The upstream contribution and promotion guidance below describes `lidge-jun/opencodex`.
+
 ## セットアップ
 
 ```bash
@@ -12,7 +14,7 @@ bun install
 bun run setup:hooks  # 旧管理対象 pre-push・post-merge の削除
 bun run dev:proxy    # 開発モードのプロキシ API
 bun run dev:gui      # ダッシュボード dev サーバー(別ターミナル)
-bun run typecheck    # bun x tsc --noEmit
+bun run typecheck    # bun check --no-script --noEmit
 bun run test        # 全テストスイート（既定）
 ```
 
@@ -122,7 +124,7 @@ Go ネイティブポートを担っていた `dev2-go` は廃止し、2 本の�
 
 ## 規約
 
-- **ES Modules のみ**(`import`/`export`)、TypeScript、`strict` モード。`bun x tsc --noEmit` をクリーンに
+- **ES Modules のみ**(`import`/`export`)、TypeScript、`strict` モード。`bun run typecheck` をクリーンに
   保ってください。
 - **ファイルあたり最大約 500 行** — 責任ごとに分割してください。単一の `index.ts` の後に小さく集中したモジュールを置いた
   `web-search/` と `vision/` サイドカーが良い例です。
