@@ -3,6 +3,8 @@ title: 贡献指南
 description: opencodex 的开发环境、结构、约定，以及添加 provider 或 adapter 的方法。
 ---
 
+For `alexalok/opencodex`, follow the [fork workflow](https://github.com/alexalok/opencodex/blob/dev/AGENTS.md#git-workflow-for-alexalokopencodex): PRs into current `dev`, or versioned backports into `releases/vX.Y.Z`. Do not clone or create `main`. The upstream contribution and promotion guidance below describes `lidge-jun/opencodex`.
+
 ## 环境搭建
 
 ```bash
