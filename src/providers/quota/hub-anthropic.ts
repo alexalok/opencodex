@@ -36,8 +36,17 @@ export async function fetchAnthropicHubAccountQuota(accountId: string): Promise<
   const isCurrent = () => identity(currentRow()) === generation;
   const cached = hubAnthropicQuotaCache.get(accountId);
   // The underlying usage reader joins only probes using this exact bearer.
-  const quota = cached?.generation === generation && Date.now() - cached.ts < ACCOUNT_QUOTA_TTL_MS
-    ? cached.quota : await fetchAnthropicUsageQuota(token);
+  let quota: ProviderQuota | null;
+  try {
+    quota = cached?.generation === generation && Date.now() - cached.ts < ACCOUNT_QUOTA_TTL_MS
+      ? cached.quota : await fetchAnthropicUsageQuota(token);
+  } catch {
+    // Ordinary transport failures are per-account unknowns, never cached successes.
+    if (!isCurrent()) throw new Error("Quota unavailable");
+    const unavailable: ProviderAccountQuota = { accountId, quota: null, unavailable: true };
+    Object.defineProperty(unavailable, "isCurrent", { value: isCurrent });
+    return unavailable;
+  }
   if (!isCurrent()) throw new Error("Quota unavailable");
   if (!cached || cached.generation !== generation || Date.now() - cached.ts >= ACCOUNT_QUOTA_TTL_MS) {
     hubAnthropicQuotaCache.delete(accountId);
