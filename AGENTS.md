@@ -2,6 +2,44 @@
 
 Guidance for AI agents (and humans) working on or reviewing this repository.
 
+## Git workflow for alexalok/opencodex
+
+These rules govern this repository and take precedence over the upstream branch
+and promotion policy reproduced below. There is no separate stable integration
+line: this repository has current `dev` and versioned backports.
+
+- Clone the fork using `git clone --branch dev --single-branch` with
+  `https://github.com/alexalok/opencodex.git`. Never clone, create, or check out a
+  `main` branch in this fork. `dev` is the default branch.
+- All development and maintenance changes land through pull requests targeting
+  this fork's `dev`; never push commits directly to `dev`.
+- Before merging any PR, fetch upstream `lidge-jun/opencodex`'s `dev` and ensure
+  it is an ancestor of fork `dev`. If it is not, integrate the upstream sync
+  through a PR first. The sync PR itself must include the current upstream tip;
+  preserve that ancestry with a merge commit when integrating a sync PR.
+- For a backport, create `releases/vX.Y.Z` from the selected upstream release
+  tag and `backports/vX.Y.Z/<feature_name>` from that release branch. Git branch
+  names have no leading slash. Backport PRs target that `releases/vX.Y.Z`
+  branch; this is the only exception to the `dev` target rule.
+- Increase the package patch version for each backported feature and update
+  the version mirrors together. Keep the release branch name fixed: for example,
+  backports to `releases/v2.90.0` produce `2.90.1`, then `2.90.2`, on that same
+  branch. Record the source PR or commits and preserve contributor attribution.
+- Local installations must be built from a merged commit on a `releases/*`
+  branch. Do not install from `dev` or an unmerged feature branch. Select the
+  newest published, non-prerelease upstream release at least seven full days old
+  when starting a new local installation line. Preserve configuration and a
+  verified rollback path during upgrades.
+- Keep `dev`, `alex/*`, and active `releases/*` branches. Delete merged
+  `backports/*` branches after their commits are retained on the release line.
+- Do not open upstream PRs unless the user explicitly requests one. Any such
+  PR must target upstream `dev` only; never upstream `main` or `preview`.
+
+The fork owner's explicit integration request authorizes merging fork PRs after
+validation. It does not waive unresolved findings or security review. GitHub
+branch protection must be checked separately; inherited upstream descriptions
+do not prove that equivalent protection is configured on this fork.
+
 ## What this project is
 
 opencodex (`ocx`) is a universal provider proxy for OpenAI Codex and Claude Code:
@@ -195,7 +233,7 @@ it binds you regardless of which mechanism is within reach.
 
 ```bash
 bun install
-bun run typecheck      # bun x tsc --noEmit (strict)
+bun run typecheck      # bun check --no-script --noEmit (strict)
 bun run test:changed   # import-graph tests against the resolved `dev` merge base
 bun run test           # full tests/ suite (default before review)
 bun run lint:gui       # GUI eslint
@@ -367,13 +405,35 @@ than nudged.
 
 ## CI policy (maintainer decision — do not change)
 
-- Pull requests run **only the fast Ubuntu subset**.
+- Pull requests run **only the fast Ubuntu subset**. By default that is `gates` plus
+  `test changed` (import-graph tests for the diff); the four full Ubuntu shards run on a
+  pull request only with the `ci:full` label or a CI/harness/toolchain/dependency change.
+  Merged pull requests are verified in batches by a manual `dev` dispatch
+  (`MAINTAINERS.md`, "Batched merges"). Because `test changed` follows the module graph,
+  add `ci:full` for changes it cannot see (subprocesses, files read as data, generated output).
 - Full cross-platform (macOS/Windows) CI runs **only** via manual
   `workflow_dispatch` and on push to `main`/`preview` (release lines).
+- A manual `lane=all` dispatch is a **batch check on `dev`**, never a per-PR gate.
+  One run is about 30 jobs (11 Windows, 5 macOS, 15 Linux) and six runner-hours, and the
+  account has only five macOS slots, so per-PR dispatches starve every other check. On
+  2026-10-27, parallel agent lanes dispatched 48 of them in twelve hours (about 13,000
+  runner-minutes). The queue passed 200 runs, and ordinary PR checks waited hours to start.
+  - Merge a pull request, including a Windows- or macOS-sensitive one, on its green PR
+    CI. After a batch of merges, run one `gh workflow run ci.yml --ref dev` as described
+    under "Batched merges". If it is red, stop merging and fix `dev` from that batch.
+  - Do not dispatch `lane=all` for a PR branch unless a maintainer explicitly asks for it
+    on that PR. Even then, run it once, on the exact head about to merge. Never re-dispatch
+    because the head moved (an `origin/dev` merge or a review fix), and never rerun to
+    green. Cancel your own superseded dispatches with `gh run cancel`.
+  - Every description edit or label change starts three event-gate workflows. Batch those
+    edits, and keep the number of agents working pull requests in parallel small.
 - **Never** add a `dev` push trigger, or `pull_request` runs for macOS/Windows
   jobs, to any workflow. PRs that change this policy will be closed.
 
 ## Branch policy
+
+The following describes **upstream**. For `alexalok/opencodex`, use the fork
+workflow above, including its prohibition on `main` and its backport PR targets.
 
 - `dev` — the single integration branch and the target for every pull request.
 - `main` — release branch. It only moves by maintainer-controlled promotion
