@@ -34,6 +34,10 @@ import { fetchPoolAccountQuota, PoolQuotaProbeBusyError, POOL_QUOTA_REFRESH_CONC
 import type { PoolQuotaResult } from "./pool-quota-probe";
 import { getRuntimeConfig, configuredPoolAccount, mapWithConcurrency } from "./runtime-config";
 import { isPassiveRead } from "../../lib/passive-read";
+import { configuredAdminToken } from "../../lib/admin-secrets";
+import { nativeUserIdClaims } from "../reserve-availability";
+import { extractAccountIdClaims } from "../../oauth/chatgpt";
+import { codexUpstreamAccountKey } from "./account-identity";
 import { CODEX_MAIN_DUPLICATE_ACTION, configuredCodexMainDuplicate, getObservedMainCodexCollisionIdentity } from "../collision-identity";
 import { captureCodexQuotaIdentity } from "./quota-identity";
 
@@ -110,6 +114,7 @@ export function poolAccountDto(
   paused: boolean,
   priority: number,
   maskEmails: boolean,
+  upstreamAccountKey?: string,
 ): CodexAuthAccountDto {
   const plan = codexPlanValue(account.plan);
   const quota = quotaForPlan(quotaResult.quota, plan);
@@ -138,6 +143,9 @@ export function poolAccountDto(
   const generation = readCodexAccountRecord(account.id)?.generation;
   return captureCodexQuotaIdentity({
     id: account.id,
+    slotId: account.id,
+    slotKind: "pool",
+    ...(upstreamAccountKey ? { upstreamAccountKey } : {}),
     email: projectEmail(account.email, maskEmails) ?? account.email,
     ...(account.alias !== undefined ? { alias: account.alias } : {}),
     ...(plan !== undefined ? { plan } : {}),
@@ -168,6 +176,11 @@ export function poolAccountDto(
 
 export interface CodexAuthAccountDto {
   id: string;
+  /** Registered slot identity; equal to id, including __main__ for native Codex. */
+  slotId: string;
+  slotKind: "native-main" | "pool";
+  /** Opaque local join key, present only with account and user claims. */
+  upstreamAccountKey?: string;
   alias?: string;
   email: string;
   plan?: string | null;
@@ -287,6 +300,7 @@ export async function listCodexAuthAccountsSnapshot(
   pruneCodexCredits([MAIN_CODEX_ACCOUNT_ID, ...poolAccounts.map(account => account.id)]);
   // One redaction decision for the whole snapshot, read once from the operator's config (#3859).
   const maskEmails = emailMaskingEnabled(runtimeConfig);
+  const identitySecret = configuredAdminToken();
   // A passive read (a Remote Link Child's, #6959) reports what this machine already observed: no
   // token refresh, no WHAM probe, and so none of the plan or credential writes they make.
   const passive = isPassiveRead();
@@ -294,6 +308,7 @@ export async function listCodexAuthAccountsSnapshot(
     ? { info: getMainAccountInfoCache() ?? EMPTY_MAIN_ACCOUNT_INFO, credentialChecked: false, hasCredential: false,
       identityGeneration: captureMainAccountIdentityGeneration() }
     : await fetchMainAccountInfoAttempt(forceRefresh, 1, undefined, false, forceRefresh, false, runtimeConfig);
+  const observedMainIdentity = getObservedMainCodexCollisionIdentity();
   const refreshedPool = await mapWithConcurrency(poolAccounts, POOL_QUOTA_REFRESH_CONCURRENCY, async account => {
     const cred = getCodexAccountCredential(account.id);
     let quotaResult: PoolQuotaResult;
@@ -365,6 +380,10 @@ export async function listCodexAuthAccountsSnapshot(
     const dtoAccount = generationLive && quotaResult.freshPlan
       ? { ...currentAccount, plan: quotaResult.freshPlan }
       : currentAccount;
+    const user = nativeUserIdClaims(currentCredential.accessToken);
+    const accountClaim = extractAccountIdClaims(currentCredential.accessToken);
+    const verifiedAccountId = !accountClaim.conflict && accountClaim.accountId === currentCredential.chatgptAccountId
+      ? accountClaim.accountId : undefined;
     return [poolAccountDto(
       runtimeConfig,
       dtoAccount,
@@ -373,6 +392,8 @@ export async function listCodexAuthAccountsSnapshot(
       isCodexAccountPaused(runtimeConfig, accountId),
       getCodexAccountPriority(runtimeConfig, accountId),
       maskEmails,
+      codexUpstreamAccountKey(identitySecret, verifiedAccountId,
+        user.conflict ? undefined : user.userId),
     )];
   });
   const projectSnapshot = (mainRefreshRefused = false): CodexAuthAccountsSnapshot => {
@@ -404,8 +425,14 @@ export async function listCodexAuthAccountsSnapshot(
         ? mainResult.terminalAuthFailure === true && liveQuotaRefresh?.status === "http_error"
           ? "unauthorized" : "refresh_failed"
         : mainHealth.status === "reauth_required" ? mainHealth.reason : undefined;
+    const mainIdentity = mainSnapshotLive && getObservedMainCodexCollisionIdentity() === observedMainIdentity
+      ? observedMainIdentity : undefined;
+    const mainAccountKey = codexUpstreamAccountKey(identitySecret, mainIdentity?.accountId, mainIdentity?.userId);
     const main: CodexAuthAccountDto = {
       id: MAIN_CODEX_ACCOUNT_ID,
+      slotId: MAIN_CODEX_ACCOUNT_ID,
+      slotKind: "native-main",
+      ...(mainAccountKey ? { upstreamAccountKey: mainAccountKey } : {}),
       email: projectEmail(mainInfo.email, maskEmails) ?? "Codex App login",
       plan: mainInfo.plan,
       ...(liveQuotaRefresh ? { quotaRefresh: liveQuotaRefresh } : {}),
