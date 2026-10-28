@@ -412,3 +412,43 @@ test("OpenAI DTO ownership survives replacement before snapshot caller resumes",
   try { await expect(hubQuotaReaders.openai(c)).rejects.toThrow("Quota unavailable"); }
   finally { snapshot.mockRestore(); record.mockRestore(); }
 });
+
+
+test("Anthropic rejected usage probes preserve healthy rows but reject replaced ownership", async () => {
+  const { spyOn } = await import("bun:test");
+  const store = await import("../../src/oauth/store");
+  const probes = await import("../../src/providers/quota/vendor-probes-oauth");
+  const { hubQuotaReaders } = await import("../../src/server/hub-quota-snapshot");
+  for (const replace of [false, true]) {
+    const credential = { access: `fixture-network-healthy-${replace}`, refresh: "fixture-refresh", expires: Date.now() + 600_000 };
+    const accounts = [
+      { id: `hub-network-healthy-${replace}`, credential },
+      { id: `hub-network-failed-${replace}`, credential: { ...credential, access: `fixture-network-failed-${replace}` } },
+    ];
+    const roster = spyOn(store, "getAccountSet").mockImplementation(() => ({ accounts }) as never);
+    const status = spyOn(store, "getAccountCredentialWithStatus").mockImplementation((_provider, id) => ({
+      credential: accounts.find(account => account.id === id)!.credential, paused: false, needsReauth: false,
+    }));
+    let fail = true;
+    const probe = spyOn(probes, "fetchAnthropicUsageQuota").mockImplementation(async token => {
+      if (token.includes("failed") && fail) {
+        if (replace) accounts[1]!.credential = { ...accounts[1]!.credential, access: "fixture-network-replacement" };
+        throw new Error("private upstream timeout");
+      }
+      return { fiveHourPercent: 12, weeklyPercent: 20 } as never;
+    });
+    try {
+      const c = config(); c.providers.openai!.disabled = true;
+      const response = await handleHubQuota(request(), c, hubQuotaReaders);
+      expect(response.status).toBe(replace ? 503 : 200);
+      const body = await response.json();
+      if (replace) expect(body.providers.anthropic.accounts).toEqual([]);
+      else {
+        expect(body.providers.anthropic.accounts.map((row: { weeklyPercent: number | null }) => row.weeklyPercent)).toEqual([20, null]);
+        fail = false;
+        expect((await hubQuotaReaders.anthropic(c))[1]!.quota?.weeklyPercent).toBe(20);
+      }
+      expect(JSON.stringify(body)).not.toContain("private upstream");
+    } finally { probe.mockRestore(); status.mockRestore(); roster.mockRestore(); }
+  }
+});

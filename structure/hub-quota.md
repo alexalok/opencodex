@@ -44,3 +44,6 @@ batches while existing upstream reads retain their own deadlines.
 Regression coverage lives in `tests/server/hub-quota.test.ts` and
 `tests/server/api-keys-routes.test.ts`. Operator instructions are in the public
 [remote hub guide](../docs-site/src/content/docs/guides/remote-hub.md).
+
+Rejected Anthropic usage probes return unknown quota only while ownership remains current;
+transport failures are not cached, so the next read may recover independently.
