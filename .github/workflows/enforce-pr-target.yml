@@ -691,7 +691,8 @@ jobs:
               && pr.head.repo?.full_name === pr.base.repo?.full_name
               && pr.head.ref.startsWith(`backports/v${releaseTarget[1]}/`)
               && pr.head.ref.length > `backports/v${releaseTarget[1]}/`.length;
-            const baseAllowed = ALLOWED_BASES.includes(pr.base.ref) || forkBackport;
+            const allowedBases = forkBackport ? [...ALLOWED_BASES, pr.base.ref] : ALLOWED_BASES;
+            const baseAllowed = allowedBases.includes(pr.base.ref);
 
             // Stacked PR exception: base is another open PR's head branch (same
             // head repo as this PR's base repo). Closed/missing parent stays wrong_base.
@@ -802,7 +803,7 @@ jobs:
 
             let failures = collectPrQualityFailures({
               baseRef: pr.base.ref,
-              allowedBases: ALLOWED_BASES,
+              allowedBases,
               title: pr.title,
               body: pr.body,
               behindMain,
