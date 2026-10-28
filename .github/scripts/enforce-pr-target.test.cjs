@@ -14,8 +14,19 @@ describe("enforce-pr-target workflow", () => {
     const start = workflow.indexOf("const releaseTarget =");
     const end = workflow.indexOf("\n\n", start);
     assert.ok(start > 0 && end > start);
-    const accepts = new Function("owner", "repo", "pr", "ALLOWED_BASES",
-      workflow.slice(start, end) + "\nreturn baseAllowed;");
+    const targetPolicy = new Function("owner", "repo", "pr", "ALLOWED_BASES",
+      workflow.slice(start, end) + "\nreturn {baseAllowed, allowedBases};");
+    const { collectPrQualityFailures } = require("./pr-quality.cjs");
+    const accepts = (owner, repo, pr, bases) => {
+      const {baseAllowed, allowedBases} = targetPolicy(owner, repo, pr, bases);
+      const failures = collectPrQualityFailures({
+        baseRef: pr.base.ref, allowedBases, title: "fix: scoped backport",
+        body: "", authorPermission: "write", changedFilePaths: [],
+      });
+      assert.equal(!failures.some(failure => failure.code === "wrong_base"), baseAllowed);
+      return baseAllowed;
+    };
+    assert.match(workflow, /collectPrQualityFailures\(\{\s+baseRef: pr\.base\.ref,\s+allowedBases,/);
     const pr = (base, head, headRepo = "alexalok/opencodex") => ({
       base: { ref: base, repo: { full_name: "alexalok/opencodex" } },
       head: { ref: head, repo: { full_name: headRepo } },
