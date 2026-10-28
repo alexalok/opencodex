@@ -682,12 +682,22 @@ jobs:
             let behindBase = 0;
             let aheadMain = 0;
             let ancestryLookupFailed = false;
-            const baseAllowed = ALLOWED_BASES.includes(pr.base.ref);
+            // Only this fork accepts backports, and only from the matching line.
+            // PR-controlled names never change which trusted code is checked out.
+            const releaseTarget = /^releases\/v(\d+\.\d+\.\d+)$/.exec(pr.base.ref);
+            const isForkRepository = owner === "alexalok" && repo === "opencodex";
+            const forkBackport = isForkRepository
+              && releaseTarget !== null
+              && pr.head.repo?.full_name === pr.base.repo?.full_name
+              && pr.head.ref.startsWith(`backports/v${releaseTarget[1]}/`)
+              && pr.head.ref.length > `backports/v${releaseTarget[1]}/`.length;
+            const allowedBases = forkBackport ? [...ALLOWED_BASES, pr.base.ref] : ALLOWED_BASES;
+            const baseAllowed = allowedBases.includes(pr.base.ref);
 
             // Stacked PR exception: base is another open PR's head branch (same
             // head repo as this PR's base repo). Closed/missing parent stays wrong_base.
             let stackedBase = false;
-            if (!baseAllowed) {
+            if (!baseAllowed && !isForkRepository) {
               try {
                 const openPrs = await github.paginate(github.rest.pulls.list, {
                   owner,
@@ -720,14 +730,16 @@ jobs:
             if (baseAllowed) {
               const headSha = pr.head.sha;
               try {
-                const { data: mainCompare } =
-                  await github.rest.repos.compareCommitsWithBasehead({
-                    owner,
-                    repo,
-                    basehead: `main...${headSha}`
-                  });
-                behindMain = mainCompare.behind_by;
-                aheadMain = mainCompare.ahead_by;
+                if (!isForkRepository) {
+                  const { data: mainCompare } =
+                    await github.rest.repos.compareCommitsWithBasehead({
+                      owner,
+                      repo,
+                      basehead: `main...${headSha}`
+                    });
+                  behindMain = mainCompare.behind_by;
+                  aheadMain = mainCompare.ahead_by;
+                }
 
                 const { data: baseCompare } =
                   await github.rest.repos.compareCommitsWithBasehead({
@@ -791,7 +803,7 @@ jobs:
 
             let failures = collectPrQualityFailures({
               baseRef: pr.base.ref,
-              allowedBases: ALLOWED_BASES,
+              allowedBases,
               title: pr.title,
               body: pr.body,
               behindMain,
