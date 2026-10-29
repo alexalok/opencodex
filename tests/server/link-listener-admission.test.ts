@@ -16,7 +16,7 @@ const PENDING_KEY = "link-pending-admission";
 const LINKED_KEY = "link-linked-admission";
 const LINKED_ID = "linked-key";
 
-type RouteExpectation = "ready" | "catalog" | "models" | "hub-state" | "usage" | "artifact-missing" | "handler-error";
+type RouteExpectation = "ready" | "catalog" | "models" | "hub-state" | "usage" | "hub-quota" | "artifact-missing" | "handler-error";
 type Route = { method: "GET" | "POST"; path: string; body?: string; expectation: RouteExpectation };
 type JsonBody = {
   [key: string]: unknown;
@@ -39,6 +39,7 @@ const ROUTES: readonly Route[] = [
   { method: "GET", path: "/v1/catalog", expectation: "catalog" },
   { method: "GET", path: "/v1/hub-state", expectation: "hub-state" },
   { method: "GET", path: "/v1/usage", expectation: "usage" },
+  { method: "GET", path: "/v1/hub-quota", expectation: "hub-quota" },
   { method: "GET", path: "/v1/models", expectation: "models" },
   { method: "POST", path: "/v1/responses", body: "{}", expectation: "handler-error" },
   { method: "POST", path: "/v1/responses/compact", body: "{}", expectation: "handler-error" },
@@ -193,6 +194,9 @@ describe("hub-link admission", () => {
         expect(admitted.status).toBe(200);
         expect(body.runtimeRole).toBe("hub");
         expect(Array.isArray(body.providers)).toBe(true);
+      } else if (route.expectation === "hub-quota") {
+        expect(admitted.status).toBe(403);
+        expect(body.error).toBe("Quota read permission required");
       } else if (route.expectation === "usage") {
         expect([200, 503, 507]).toContain(admitted.status);
         if (admitted.status === 200) {
