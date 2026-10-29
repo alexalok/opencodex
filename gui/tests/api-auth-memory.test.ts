@@ -109,7 +109,7 @@ test("audio uploads bypass connected management interception and 401 recovery", 
   expect(seen).toHaveLength(1);
 });
 
-test("prompted API tokens stay memory-only and are not written to sessionStorage", async () => {
+test("unverified prompt results are not persisted to browser storage", async () => {
   declareManagementAuthRequired();
   sessionStorage.setItem(LEGACY_TOKEN_KEY, "legacy-secret");
 
@@ -131,6 +131,7 @@ test("prompted API tokens stay memory-only and are not written to sessionStorage
   expect(authorized).toBe(true);
   expect(sessionStorage.getItem(LEGACY_TOKEN_KEY)).toBeNull();
   expect(sessionStorage.length).toBe(0);
+  expect(window.localStorage.length).toBe(0);
 });
 
 test("validates prompted tokens with a safe read before retrying the failed request", async () => {

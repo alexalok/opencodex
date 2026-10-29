@@ -19,7 +19,7 @@ export function linkRouteAllowed(url: URL, req: Request): boolean {
   if (pathname === "/v1/catalog" || pathname === "/v1/hub-state") {
     return req.method === "GET" || req.method === "HEAD";
   }
-  if (pathname === "/v1/usage" || pathname === "/v1/models") return req.method === "GET";
+  if (pathname === "/v1/usage" || pathname === "/v1/models" || pathname === "/v1/hub-quota") return req.method === "GET";
   if (pathname === "/v1/responses" || pathname === "/v1/responses/compact"
     || pathname === "/v1/messages" || pathname === "/v1/messages/count_tokens"
     || pathname === "/v1/chat/completions" || pathname === "/v1/audio/transcriptions"

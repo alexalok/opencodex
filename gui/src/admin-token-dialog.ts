@@ -9,8 +9,8 @@ export type AdminTokenVerifier = (token: string) => Promise<AdminTokenValidation
 
 /**
  * Ask for the management credential with a real sign-in form so browsers and
- * password managers can offer save/autofill. OpenCodex itself still keeps the
- * submitted token in memory only; persistence remains entirely browser-owned.
+ * password managers can offer save/autofill. The API layer remembers the token
+ * only after this form's verifier confirms that the server accepts it.
  */
 export function promptForAdminToken(
   verifyToken: AdminTokenVerifier,

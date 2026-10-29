@@ -24,7 +24,9 @@ bun run dev:gui
 
 通过 `localhost`、`127.0.0.1` 等 loopback 地址打开仪表盘时，它会自动获得一个短期 GUI session，因此通常无需输入 token。在非 loopback 主机上公开仪表盘时，必须使用 `OPENCODEX_ADMIN_AUTH_TOKEN` 或自动生成的 `~/.opencodex/admin-api-token` 文件中的管理员 token。
 
-远程仪表盘会显示标准密码表单，浏览器密码管理器可以提示保存并自动填充 token。仪表盘本身只在内存中保存 token，不会写入 `localStorage` 或 `sessionStorage`；是否持久保存完全由浏览器或密码管理器决定。
+远程仪表盘使用兼容密码管理器的标准密码表单。验证成功后，仪表盘会将管理员 token 保存到此浏览器的 `localStorage` 中，保存期限为 365 天。重新加载页面、重新打开浏览器或重启代理都无需再次输入 token。日常使用不会延长保存期限。
+
+token 过期或被拒绝、主动退出登录，以及清除此站点的浏览器数据，都会移除已保存的登录信息。短期 GUI 会话仍仅保存在内存中；如果浏览器存储不可用，登录只在当前页面内有效。
 
 ## 配额摘要栏
 
