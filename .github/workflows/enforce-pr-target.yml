@@ -702,7 +702,7 @@ jobs:
             // Stacked PR exception: base is another open PR's head branch (same
             // head repo as this PR's base repo). Closed/missing parent stays wrong_base.
             let stackedBase = false;
-            if (!baseAllowed && !isForkRepository) {
+            if (!baseAllowed) {
               try {
                 const openPrs = await github.paginate(github.rest.pulls.list, {
                   owner,

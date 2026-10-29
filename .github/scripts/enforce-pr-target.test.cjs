@@ -43,7 +43,7 @@ describe("enforce-pr-target workflow", () => {
     ]) assert.equal(accepts("alexalok", "opencodex", candidate, ["dev"]), false);
     assert.equal(accepts("lidge-jun", "opencodex", pr("releases/v2.90.0", "backports/v2.90.0/search"), ["dev"]), false);
     assert.match(workflow, /if \(!isForkRepository\) \{\s+const \{ data: mainCompare \}/);
-    assert.match(workflow, /if \(!baseAllowed && !isForkRepository\)/);
+    assert.match(workflow, /if \(!baseAllowed\)/);
   });
 
   it("uses pull_request_target without checking out PR head code", () => {
