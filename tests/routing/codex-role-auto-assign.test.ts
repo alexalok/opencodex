@@ -195,7 +195,7 @@ describe("capability response bounds", () => {
 });
 
 describe("capabilityTableFromArtificialAnalysis", () => {
-  test("scores every domain by the intelligence index, ignores retired indexes, and matches catalog slugs", () => {
+  test("scores every domain by intelligence and matches explicit model mappings", () => {
     const table = capabilityTableFromArtificialAnalysis({
       status: 200,
       data: [
@@ -204,10 +204,20 @@ describe("capabilityTableFromArtificialAnalysis", () => {
         { name: "GPT-6.1 Sol", slug: "gpt-6-1-sol", evaluations: { artificial_analysis_intelligence_index: 73, artificial_analysis_coding_index: 61 } },
       ],
     });
+    const mappings = { "cpa/claude-opus-5-5": "Claude Opus 5.5", "gpt-6.1-sol": "gpt-6-1-sol" };
     expect(table.source?.redistributable).toBe(false);
-    expect([candidateModelKey("cpa/claude-opus-5-5"), candidateModelKey("gpt-6.1-sol")].map(key => table.domains.coding!.get(key))).toEqual([71, 73]);
-    expect(table.domains.agentic!.get(candidateModelKey("gpt-6.1-sol"))).toBe(73);
-    expect(table.domains.reasoning!.get(candidateModelKey("gpt-6.1-sol"))).toBe(73);
+    expect(["cpa/claude-opus-5-5", "gpt-6.1-sol"].map(slug => table.domains.coding!.get(candidateModelKey(slug, mappings)!))).toEqual([71, 73]);
+    expect(table.domains.agentic!.get(candidateModelKey("gpt-6.1-sol", mappings)!)).toBe(73);
     expect(() => capabilityTableFromArtificialAnalysis({ error: "API key is required" })).toThrow();
+  });
+
+  test("does not infer benchmark identity from provider names, aliases or inherited mappings", () => {
+    const mappings = { "trusted/claude-opus-5-5": "Claude Opus 5.5" };
+    for (const slug of ["attacker/claude-opus-5-5", "claude/opus-5-5", "claude-opus-5-5", "gpt-6.1-sol", "toString"]) {
+      expect(candidateModelKey(slug, mappings)).toBeNull();
+      expect(candidateModelKey(slug)).toBeNull();
+    }
+    expect(candidateModelKey("trusted/claude-opus-5-5", mappings)).toBe("claude-opus-5-5");
+    expect(candidateModelKey("inherited", Object.create({ inherited: "Claude Opus 5.5" }))).toBeNull();
   });
 });
