@@ -47,6 +47,9 @@ test("any other malformed capability block is dropped whole and reported as no c
   expect(parse({ artificialAnalysis: { apiKey: "aa-fixture", extra: 1 } })).toBeUndefined();
   expect(parse({ artificialAnalysis: { apiKey: 42 } })).toBeUndefined();
   expect(parse({ artificialAnalysis: { apiKey: "   " } })).toBeUndefined();
+  expect(parse({ modelMappings: { "trusted/model": "  Benchmark model  " } })).toEqual({ modelMappings: { "trusted/model": "Benchmark model" } });
+  expect(parse({ modelMappings: { "trusted/model": "   " } })).toBeUndefined();
+  expect(parse({ modelMappings: { "trusted/model": 42 } })).toBeUndefined();
   expect(parse("aa-fixture")).toBeUndefined();
   const requests: string[] = [];
   globalThis.fetch = Object.assign(async (input: string | URL | Request) => {

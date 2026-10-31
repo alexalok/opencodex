@@ -8,9 +8,10 @@
  *
  * Each domain maps to one published index. The source names a model by display name
  * with one row per reasoning setting ("Claude Opus 5.5 (High)"); capabilityModelKey drops the
- * setting and folds the rest to a slug, which matches a catalog id once its provider prefix is
- * gone ("cpa/claude-opus-5-5"). The best setting's score stands for the model, since a role can
- * be given that setting. A candidate with no row is unmeasured, never guessed.
+ * setting and folds the rest to a slug. Only an operator's exact candidate-to-benchmark mapping
+ * establishes identity; a provider's model name or alias alone does not. The best setting's score
+ * stands for the mapped model, since a role can be given that setting. Unmapped candidates are
+ * unmeasured, never guessed.
  */
 import { resolveProviderApiKey } from "../providers/api-key-resolve";
 import type { OcxConfig } from "../types";
@@ -63,8 +64,9 @@ export function capabilityModelKey(name: string): string {
   return name.toLowerCase().replace(/\([^)]*\)/g, " ").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
-export function candidateModelKey(slug: string): string {
-  return capabilityModelKey(slug.slice(slug.lastIndexOf("/") + 1));
+export function candidateModelKey(slug: string, mappings: Readonly<Record<string, string>> = {}): string | null {
+  if (!Object.hasOwn(mappings, slug)) return null;
+  return capabilityModelKey(mappings[slug]!) || null;
 }
 
 function keepBest(scores: Map<string, number>, key: string, value: number) {

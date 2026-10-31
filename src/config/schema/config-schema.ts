@@ -331,6 +331,7 @@ export const configSchema = z.object({
     return rest;
   }, z.object({
     artificialAnalysis: z.object({ apiKey: z.string().trim().min(1).optional() }).strict().optional(),
+    modelMappings: z.record(z.string().min(1), z.string().trim().min(1)).optional(),
   }).strict().optional().catch(undefined)),
   codexShimAutoRestore: z.boolean().optional(),
   codexDesktopAuthless: z.boolean().optional().catch(undefined),

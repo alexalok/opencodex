@@ -367,9 +367,10 @@ the same refusal as the PUT. Applying a proposal is the ordinary
   resolves; the source refuses redirects and keeps a 30-second timeout and a 16 MiB body bound. With no key or on failure it
   keeps configured tiers and price signals, reports the reason through `capability.error`, and returns null source
   attribution. The `capability` block attributes the source; Artificial Analysis terms forbid redistribution, so its scores
-  are dropped from that block. Mapped models keep their mapped tier either way. With two or more measured unmapped
-  candidates, those are tiered by distinct score values (equal scores share a tier) without requiring prices, and unmeasured
-  unmapped ones are not proposed; otherwise price rank decides. `capability.error` is set only when no key is configured or
+  are dropped from that block. Only exact `codexRoleCapability.modelMappings` entries associate candidate slugs with
+  benchmark names or slugs; all others are unmeasured. `codexRoleTiers` always wins. With two or more measured candidates
+  lacking configured tiers, distinct scores determine tiers (ties share a tier), prices are optional, and unmeasured
+  candidates are excluded; otherwise price rank decides. `capability.error` is set only when no key is configured or
   the source cannot be read; a source that answered but matched fewer than two candidates leaves it null, and a
   proposal picked by price rank carries `tierSource: "price"`. Three or more priced models split evenly across the three
   tiers. Fewer are anchored at the top, the dearest frontier and each cheaper one a tier lower, so one is frontier and two
@@ -384,8 +385,7 @@ the same refusal as the PUT. Applying a proposal is the ordinary
   the ladder the written Codex catalog shows for it, an explicit empty list stays empty, and a row without its own default
   takes the catalog's default when that rung is on the ladder.
 
-The sizing call is injectable (`completeCodexRoleSizing` on the management deps), so route tests answer it
-without a provider. Sibling instances refuse the preview too: it sits under the refused
+The sizing call is injectable (`completeCodexRoleSizing` on management deps), so tests need no provider. Sibling instances refuse the preview: it sits under the refused
 `/api/codex-agent-roles` prefix, and its proposals could not be applied there anyway.
 
 ### Delegation model suggest

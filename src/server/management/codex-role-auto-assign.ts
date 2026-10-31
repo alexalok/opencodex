@@ -182,7 +182,8 @@ export async function proposeCodexRoleModels(options: {
     const scores = table?.domains[domain];
     if (!scores) continue;
     const measured = new Map(candidates.flatMap(candidate => {
-      const score = scores.get(capability.candidateModelKey(candidate.model));
+      const key = capability.candidateModelKey(candidate.model, options.config.codexRoleCapability?.modelMappings);
+      const score = key === null ? undefined : scores.get(key);
       return score === undefined ? [] : [[candidate.model, score] as const];
     }));
     classifiedByDomain.set(domain, assign.classifyRoleModelCandidates(candidates, options.config.codexRoleTiers, measured));

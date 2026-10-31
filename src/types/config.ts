@@ -774,9 +774,10 @@ export interface OcxConfig {
   codexRoleTiers?: { fast?: string[]; standard?: string[]; frontier?: string[] };
   /**
    * Measured-capability source for Codex role auto-assign. With an Artificial Analysis API key
-   * (a literal, ${ENV} or keychain reference) its indexes inform measured tiers.
+   * (a literal, ${ENV} or keychain reference) its indexes inform measured tiers only for exact
+   * candidate slugs explicitly mapped to benchmark model names or slugs in modelMappings.
    */
-  codexRoleCapability?: { artificialAnalysis?: { apiKey?: string } };
+  codexRoleCapability?: { artificialAnalysis?: { apiKey?: string }; modelMappings?: Record<string, string> };
   /**
    * TTL (ms) for cached sub-agent model availability probes. Default 60_000.
    */

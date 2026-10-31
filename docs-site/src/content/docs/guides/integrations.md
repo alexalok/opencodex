@@ -994,7 +994,7 @@ then picks the cheapest model from your picker list that reaches the tier:
 
 - Models listed under `codexRoleTiers` in the opencodex config (`{ "fast": [...], "standard": [...], "frontier": [...] }`)
   have that tier.
-- When two or more of the other models have a published score in the role's domain, those models are
+- When two or more of the other models have an explicit benchmark mapping and a published score in the role's domain, those models are
   tiered by distinct score values, without requiring a price; equal scores share a tier, and unscored models are left out. Scores come from
   [Artificial Analysis](https://artificialanalysis.ai) when you add your own API key
   (below). The response's `capability` block names the source it used.
@@ -1003,15 +1003,24 @@ then picks the cheapest model from your picker list that reaches the tier:
 - When tiering falls back to price, models with no price and no listed tier are not proposed. List them to include them.
 
 To use Artificial Analysis, create a free API key at [artificialanalysis.ai](https://artificialanalysis.ai/api-reference)
-and set it as a literal, an `${ENV}` reference or a keychain reference:
+and set it as a literal, an `${ENV}` reference or a keychain reference. Map each trusted candidate's
+exact picker slug to its Artificial Analysis model name or slug:
 
 ```json
 {
   "codexRoleCapability": {
-    "artificialAnalysis": { "apiKey": "${ARTIFICIAL_ANALYSIS_API_KEY}" }
+    "artificialAnalysis": { "apiKey": "${ARTIFICIAL_ANALYSIS_API_KEY}" },
+    "modelMappings": {
+      "gpt-6.1-sol": "gpt-6-1-sol",
+      "anthropic/claude-opus-5-5": "Claude Opus 5.5"
+    }
   }
 }
 ```
+
+Only add a mapping after verifying which model that route serves. Model names and aliases alone do
+not establish identity, including bare native names. Unmapped candidates have no measured score;
+`codexRoleTiers` and the price fallback remain available without benchmark mappings.
 
 opencodex reads it once per day, which stays inside the free tier's daily request limit. Its terms allow
 using the data for your own decisions and forbid passing it on, so auto-assign keeps the scores
