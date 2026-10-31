@@ -1,6 +1,6 @@
 {
   "name": "@bitkyc08/opencodex",
-  "version": "2.91.1",
+  "version": "2.91.2",
   "opencodexFork": {
     "repository": "https://github.com/alexalok/opencodex"
   },
