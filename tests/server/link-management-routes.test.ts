@@ -1,3 +1,4 @@
+import { isApiAuthRequired } from "../../src/server/auth-cors";
 import { remoteChildHttpArgv, REMOTE_CURL_PREFLIGHT } from "../../src/link/remote-probe";
 import { afterEach, describe, expect, test } from "bun:test";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
@@ -189,6 +190,25 @@ describe("link management routes", () => {
     for (const ingress of ["hub-link", "hub-management", "claude-intercept"] as const) {
       expect(trustedLoopbackForIngress(ingress, "127.0.0.1")).toBe(false);
     }
+  });
+
+  test("admits loopback-alias admin management without exempting proxy API keys", async () => {
+    temp = mkdtempSync(join(tmpdir(), "ocx-link-alias-"));
+    const h = harness();
+    const cfg = { ...h.config, hostname: "127.0.0.2" };
+    for (const hostname of ["127.0.0.2", "127.1.2.3", "127.255.255.254"]) {
+      expect(trustedLoopbackForIngress("public", hostname)).toBe(true);
+      expect(isApiAuthRequired({ hostname })).toBe(true);
+      for (const ingress of ["hub-link", "hub-management", "claude-intercept"] as const) {
+        expect(trustedLoopbackForIngress(ingress, hostname)).toBe(false);
+      }
+    }
+    for (const hostname of ["0.0.0.0", "10.0.0.1", "126.0.0.2", "128.0.0.2", "127.0.0.256", "127.0.0.2.example", "127.1"]) {
+      expect(trustedLoopbackForIngress("public", hostname)).toBe(false);
+    }
+    const trusted = trustedLoopbackForIngress("public", cfg.hostname);
+    expect((await call("/api/link/status", "GET", undefined, h.deps, "admin-token", trusted, null, true, cfg))?.status).toBe(200);
+    expect((await call("/api/link/status", "GET", undefined, h.deps, "gui-session", trusted, null, false, cfg))?.status).toBe(403);
   });
 
   test("admits the current loopback dashboard session of a standalone runtime on trusted loopback ingress", async () => {
