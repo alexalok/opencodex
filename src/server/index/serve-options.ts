@@ -1,3 +1,4 @@
+import { isIPv4 } from "node:net";
 import type { Server, ServerWebSocket } from "bun";
 import { modelAliasIdPromoter } from "./model-alias-id";
 import type { StartServerDeps } from "./startup-warnings";
@@ -215,8 +216,13 @@ import { agentAssertionUnsupportedResponse, hasAgentAssertionAuthorization } fro
 export type ServerIngress = "public" | "unauthenticated-loopback" | "hub-management" | "claude-intercept" | "hub-link";
 
 export function trustedLoopbackForIngress(ingress: ServerIngress, hostname: string): boolean {
+  // Management locality follows the bound socket, including all IPv4 loopback
+  // aliases. Keep this separate from the data-plane auth exemption: deployments
+  // may deliberately bind 127.0.0.2 behind a reverse proxy to require API keys.
+  const boundHost = hostname.trim();
+  const ipv4Loopback = isIPv4(boundHost) && boundHost.startsWith("127.");
   return ingress === "unauthenticated-loopback"
-    || (ingress === "public" && isLoopbackHostname(hostname));
+    || (ingress === "public" && (isLoopbackHostname(hostname) || ipv4Loopback));
 }
 
 /**
