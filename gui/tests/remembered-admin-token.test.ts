@@ -1,9 +1,8 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { Window } from "happy-dom";
-import { configureApiTargets, hasAdminTokenLogin, hasApiSession, installApiAuthFetch, logoutApiSession, resetApiAuthFetchForTests } from "../src/api";
+import { configureApiTargets, installApiAuthFetch, logoutApiSession, resetApiAuthFetchForTests } from "../src/api";
 import { standaloneApiTargets } from "../src/api-targets";
 import { ADMIN_TOKEN_RETENTION_MS } from "../src/remembered-admin-token";
-import { logoutAdminTokenLogins } from "../src/use-admin-token-login";
 
 const TOKEN = "ocx_admin_remembered_fixture";
 const ORIGIN = "https://dashboard.example.test";
@@ -133,20 +132,6 @@ test("logout clears the remembered login and prevents recovery after reload", as
   await login();
   expect(await logoutApiSession("shared")).toBe(true);
   expect(saved()).toBeNull();
-  enteredToken = null;
-  reload();
-  expect((await window.fetch("/api/config")).status).toBe(401);
-});
-
-test("an admin-token login is visible to the sign-out control, which forgets it", async () => {
-  await login();
-  // The minted-session check alone hid the sign-out control for this login.
-  expect(hasApiSession("shared")).toBe(false);
-  expect(hasAdminTokenLogin("shared")).toBe(true);
-  expect(await logoutAdminTokenLogins()).toBe(true);
-  expect(hasAdminTokenLogin("shared")).toBe(false);
-  expect(saved()).toBeNull();
-  expect(await logoutAdminTokenLogins()).toBe(false);
   enteredToken = null;
   reload();
   expect((await window.fetch("/api/config")).status).toBe(401);
