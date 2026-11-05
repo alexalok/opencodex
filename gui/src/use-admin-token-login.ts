@@ -26,9 +26,6 @@ export function useAdminTokenLogin(): boolean {
 
 /** Sign out every plane holding a typed admin token, which also forgets its remembered copy. */
 export async function logoutAdminTokenLogins(): Promise<boolean> {
-  let loggedOut = false;
-  for (const plane of PLANES) {
-    if (hasAdminTokenLogin(plane) && await logoutApiSession(plane)) loggedOut = true;
-  }
-  return loggedOut;
+  const results = await Promise.all(PLANES.filter(hasAdminTokenLogin).map(plane => logoutApiSession(plane)));
+  return results.some(Boolean);
 }
