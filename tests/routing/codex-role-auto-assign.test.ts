@@ -195,7 +195,7 @@ describe("capability response bounds", () => {
 });
 
 describe("capabilityTableFromArtificialAnalysis", () => {
-  test("reads each domain's index, falls back to intelligence, and matches explicit model mappings", () => {
+  test("scores every domain by the intelligence index, ignores retired indexes, and matches explicit model mappings", () => {
     const table = capabilityTableFromArtificialAnalysis({
       status: 200,
       data: [
@@ -206,8 +206,9 @@ describe("capabilityTableFromArtificialAnalysis", () => {
     });
     const mappings = { "cpa/claude-opus-5-5": "Claude Opus 5.5", "gpt-6.1-sol": "gpt-6-1-sol" };
     expect(table.source?.redistributable).toBe(false);
-    expect(["cpa/claude-opus-5-5", "gpt-6.1-sol"].map(slug => table.domains.coding!.get(candidateModelKey(slug, mappings)!))).toEqual([66, 61]);
+    expect([candidateModelKey("cpa/claude-opus-5-5", mappings), candidateModelKey("gpt-6.1-sol", mappings)].map(key => table.domains.coding!.get(key!))).toEqual([71, 73]);
     expect(table.domains.agentic!.get(candidateModelKey("gpt-6.1-sol", mappings)!)).toBe(73);
+    expect(table.domains.reasoning!.get(candidateModelKey("gpt-6.1-sol", mappings)!)).toBe(73);
     expect(() => capabilityTableFromArtificialAnalysis({ error: "API key is required" })).toThrow();
   });
 
