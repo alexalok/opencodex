@@ -1310,14 +1310,14 @@ export async function handleConfigRoutes(ctx: ManagementContext): Promise<Respon
 
   if (url.pathname === "/api/auto-review-settings" && req.method === "GET") {
     const override = config.autoReviewOverride ?? {};
-    return jsonResponse({ enabled: override.enabled === true, model: override.model?.trim() ?? "" });
+    return jsonResponse({ enabled: override.enabled === true, model: override.model?.trim() ?? "", ...(override.reasoningEffort ? { reasoningEffort: override.reasoningEffort } : {}) });
   }
 
   if (url.pathname === "/api/auto-review-settings" && req.method === "PUT") {
     let raw: unknown;
     try { raw = await readManagementJsonBody(req); } catch (error) { rethrowManagementBodyTooLarge(error); return jsonResponse({ error: "invalid JSON body" }, 400); }
     if (!isPlainRecord(raw)) return jsonResponse({ error: "body must be a JSON object" }, 400);
-    const body = raw as { enabled?: unknown; model?: unknown };
+    const body = raw as { enabled?: unknown; model?: unknown; reasoningEffort?: unknown };
     const shapeError = autoReviewOverrideConfigError(body, "body");
     if (shapeError) return jsonResponse({ error: shapeError }, 400);
     const rollback = captureConfigTopLevelRollback(config, ["autoReviewOverride"]);
@@ -1329,6 +1329,10 @@ export async function handleConfigRoutes(ctx: ManagementContext): Promise<Respon
         if (trimmed === "") delete config.autoReviewOverride.model;
         else config.autoReviewOverride.model = trimmed;
       }
+      if (typeof body.reasoningEffort === "string") {
+        if (body.reasoningEffort === "") delete config.autoReviewOverride.reasoningEffort;
+        else config.autoReviewOverride.reasoningEffort = body.reasoningEffort;
+      }
       (deps.saveConfigPreservingClaudeCode ?? saveConfigPreservingClaudeCode)(config);
     } catch (error) {
       if (!(error instanceof ConfigWritePublishedError)) rollback();
@@ -1337,8 +1341,8 @@ export async function handleConfigRoutes(ctx: ManagementContext): Promise<Respon
     // The catalog carries the reviewer stamps, so the new selector has to reach it now; the
     // disposition travels in the body like every other catalog-affecting route.
     const catalogRefresh = await convergeCodexCatalog();
-    const override = config.autoReviewOverride;
-    return jsonResponse({ ok: true, enabled: override.enabled === true, model: override.model ?? "", catalogRefresh });
+    const override = config.autoReviewOverride ?? {};
+    return jsonResponse({ ok: true, enabled: override.enabled === true, model: override.model ?? "", ...(override.reasoningEffort ? { reasoningEffort: override.reasoningEffort } : {}), catalogRefresh });
   }
   return null;
 }

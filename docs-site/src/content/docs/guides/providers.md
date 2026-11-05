@@ -1724,6 +1724,11 @@ setting remains saved and the command exits 1. Resolve the failure before syncin
 provider its own — usually cheaper — reviewer, set the selector on that provider row in
 `~/.opencodex/config.json`:
 
+The model selector includes native GPT and routed provider models. Set **Reviewer reasoning**
+to override effort only for approval-review calls, or leave **Use requested effort** selected
+to preserve Codex’s choice. This works with a blank model selector too. Ordinary chats and
+`/review` calls are unaffected. Model limits and configured effort caps still apply.
+
 ```json
 {
   "providers": {
