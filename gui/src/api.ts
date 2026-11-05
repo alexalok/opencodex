@@ -175,6 +175,12 @@ export function hasApiSession(plane: ApiPlane): boolean {
   return Boolean(runtime(plane).session.token?.startsWith("ocx_session_"));
 }
 
+/** A typed admin token is active (and possibly remembered); it needs its own sign-out control. */
+export function hasAdminTokenLogin(plane: ApiPlane): boolean {
+  const session = runtime(plane).session;
+  return session.token !== null && session.adminTokenExpiresAt !== undefined;
+}
+
 export async function logoutApiSession(plane: ApiPlane): Promise<boolean> {
   const state = runtime(plane);
   const barrier = state.logoutBarrier ?? { pending: 0, completed: false };

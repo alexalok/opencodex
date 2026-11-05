@@ -23,6 +23,7 @@ import { SectionSwitcher } from "./components/SectionSwitcher";
 import { useI18n, useT, LOCALES, localeDisplayName, type Locale, type TKey } from "./i18n/shared";
 import { Notice, Select, ToastNotice, type NoticeTone } from "./ui";
 import { bootstrapApiSession, configureApiTargets, hasApiSession, installApiAuthFetch, logoutApiSession, SESSION_UNAVAILABLE_EVENT } from "./api";
+import { logoutAdminTokenLogins, useAdminTokenLogin } from "./use-admin-token-login";
 import { apiBaseForPlane, discoverApiTargets, isConnectedRuntime, runtimeRoleFromDocument, standaloneApiTargets, type ApiTargets } from "./api-targets";
 import { ConnectPairingForm } from "./connect-pairing";
 import { validateRemoteLinkSession } from "./connect-pairing-transport";
@@ -144,6 +145,8 @@ export default function App() {
   const [hubPairingOpen, setHubPairingOpen] = useState(false);
   const [remoteWorkspaceAvailableState, setRemoteWorkspaceAvailable] = useState(false);
   const [sessionLoggingOut, setSessionLoggingOut] = useState(false);
+  const adminTokenLogin = useAdminTokenLogin();
+  const showSessionLogout = (targets.connected && sharedSessionReady) || adminTokenLogin;
   /*
    * Results from the two sidebar orbs used to be `alert()`, which the app's webview draws
    * nowhere, so a refused stop and a completed one looked identical: nothing happened.
@@ -356,10 +359,13 @@ export default function App() {
   const handleSessionLogout = async () => {
     if (sessionLoggingOut) return;
     setSessionLoggingOut(true);
-    const loggedOut = await logoutApiSession("shared");
+    const sessionLogout = targets.connected && sharedSessionReady;
+    const loggedOut = sessionLogout ? await logoutApiSession("shared") : true;
+    const adminLoggedOut = await logoutAdminTokenLogins();
     setSessionLoggingOut(false);
-    if (loggedOut) setSharedSessionReady(false);
-    else report(t("connection.sessionLogoutFailed"), "err");
+    if (sessionLogout && loggedOut) setSharedSessionReady(false);
+    // A minted session reports its own result; otherwise the admin-token sign-out is the action.
+    if (sessionLogout ? !loggedOut : !adminLoggedOut) report(t("connection.sessionLogoutFailed"), "err");
   };
 
   /*
@@ -413,7 +419,7 @@ export default function App() {
         </button>
         {brand}
         <div className="mobile-topbar-actions">
-          {targets.connected && sharedSessionReady && (
+          {showSessionLogout && (
             <button type="button" className="sidebar-orb" onClick={() => { void handleSessionLogout(); }} disabled={sessionLoggingOut}
               aria-label={t(sessionLoggingOut ? "connection.sessionLoggingOut" : "connection.sessionLogout")} title={t("connection.sessionLogout")}>
               <IconX />
@@ -507,7 +513,7 @@ export default function App() {
           <div className="sidebar-action-row">
             <span className="sidebar-action-label">{t("dash.actions")}</span>
             <div className="sidebar-action-orbs">
-              {targets.connected && sharedSessionReady && (
+              {showSessionLogout && (
                 <button type="button" className="sidebar-orb" onClick={() => { void handleSessionLogout(); }} disabled={sessionLoggingOut}
                   aria-label={t(sessionLoggingOut ? "connection.sessionLoggingOut" : "connection.sessionLogout")}
                   title={t("connection.sessionLogout")}>
