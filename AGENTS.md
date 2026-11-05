@@ -35,6 +35,12 @@ line: this repository has current `dev` and versioned backports.
   `backports/*` branches after their commits are retained on the release line.
 - Do not open upstream PRs unless the user explicitly requests one. Any such
   PR must target upstream `dev` only; never upstream `main` or `preview`.
+- Hosted macOS CI is off in this fork: pull requests, pushes and the nightly
+  schedule skip every `macos-latest` job and matrix leg. Run macOS validation
+  on demand with a manual `workflow_dispatch`. Keep the
+  `github.repository != 'alexalok/opencodex'` gates when syncing upstream
+  workflow changes; this overrides the upstream macOS coverage rule in
+  `.github/AGENTS.md` for automatic runs only.
 
 The fork owner's explicit integration request authorizes merging fork PRs after
 validation. It does not waive unresolved findings or security review. GitHub

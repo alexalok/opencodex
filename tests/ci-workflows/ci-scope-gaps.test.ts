@@ -68,7 +68,7 @@ describe("an edit to the setup action alone", () => {
     expect(scriptOf(job)).toContain("bun --version");
     // Pull requests run the ubuntu leg only; windows and macos run after merge.
     expect(job.strategy?.matrix?.os).toBe(
-      "${{ fromJSON(github.event_name == 'pull_request' && '[\"ubuntu-latest\"]' || '[\"ubuntu-latest\",\"windows-latest\",\"macos-latest\"]') }}",
+      "${{ fromJSON(github.event_name == 'pull_request' && '[\"ubuntu-latest\"]' || github.repository == 'alexalok/opencodex' && github.event_name != 'workflow_dispatch' && '[\"ubuntu-latest\",\"windows-latest\"]' || '[\"ubuntu-latest\",\"windows-latest\",\"macos-latest\"]') }}",
     );
   });
 
