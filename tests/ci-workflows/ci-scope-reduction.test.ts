@@ -128,6 +128,8 @@ const SELECTION_SCENARIOS = [
   { name: "a pull request that touches no native path", inputs: { event_name: "pull_request", ci: "true", native: "false" }, macos: false, desktopShell: false },
   { name: "an out-of-scope pull request", inputs: { event_name: "pull_request", ci: "false", native: "false" }, macos: false, desktopShell: false },
   { name: "a push in the alexalok/opencodex fork", inputs: { event_name: "push", ci: "false", native: "false", repository: FORK_REPOSITORY }, macos: false, desktopShell: true },
+  { name: "a schedule in the alexalok/opencodex fork", inputs: { event_name: "schedule", ci: "false", native: "false", repository: FORK_REPOSITORY }, macos: false, desktopShell: true },
+  { name: "a workflow_dispatch in the alexalok/opencodex fork", inputs: { event_name: "workflow_dispatch", ci: "false", native: "false", repository: FORK_REPOSITORY }, macos: true, desktopShell: true },
 ] as const;
 
 /** The matrix output a smoke job consumes, read back out of its own strategy. */
@@ -158,7 +160,8 @@ function renderFilterOutputs(text: string, inputs: { ci: string; native: string;
     if (name === "native") return inputs.native;
     throw new Error(`unsupported filter output in emitter: ${name}`);
   }).replace(/\$\{\{\s*github\.event_name\s*\}\}/g, inputs.event)
-    .replace(/\$\{\{\s*github\.repository != 'alexalok\/opencodex'\s*\}\}/g, String((inputs.repository ?? "lidge-jun/opencodex") !== FORK_REPOSITORY));
+    .replace(/\$\{\{\s*github\.repository != 'alexalok\/opencodex' \|\| github\.event_name == 'workflow_dispatch'\s*\}\}/g,
+      String((inputs.repository ?? "lidge-jun/opencodex") !== FORK_REPOSITORY || inputs.event === "workflow_dispatch"));
   const leftover = rendered.indexOf("${{");
   if (leftover >= 0) throw new Error(`unrendered expression in emitter: ${rendered.slice(leftover, leftover + 80)}`);
   return rendered;
@@ -388,7 +391,7 @@ describe("the native-gated jobs", () => {
   test("keep macOS off pull requests and leave desktop-shell on the native filter", () => {
     // platform-macos and widget run on macOS runners, which pull requests never pay for.
     for (const name of MACOS_JOBS) {
-      expect(`${name}:${jobs[name]?.if}`).toBe(`${name}:github.event_name != 'pull_request' && github.repository != 'alexalok/opencodex'`);
+      expect(`${name}:${jobs[name]?.if}`).toBe(`${name}:github.event_name != 'pull_request' && (github.repository != 'alexalok/opencodex' || github.event_name == 'workflow_dispatch')`);
     }
     // desktop-shell runs on ubuntu, so pull requests keep selecting it through the
     // native filter, widened by the package-affecting desktop filter.
@@ -452,8 +455,10 @@ describe("the smoke matrices", () => {
       expect(legsFor(jobName, "true", "true", "pull_request")).toEqual(["ubuntu-latest"]);
       expect(legsFor(jobName, "true", "false", "push").sort()).toEqual(["ubuntu-latest", "windows-latest"]);
       expect(legsFor(jobName, "true", "true", "push").sort()).toEqual(["macos-latest", "ubuntu-latest", "windows-latest"]);
-      // The alexalok/opencodex fork runs no hosted macOS jobs, native selection or not.
+      // The alexalok/opencodex fork runs hosted macOS jobs only when dispatched by hand.
       expect(legsFor(jobName, "true", "true", "push", FORK_REPOSITORY).sort()).toEqual(["ubuntu-latest", "windows-latest"]);
+      expect(legsFor(jobName, "true", "true", "schedule", FORK_REPOSITORY).sort()).toEqual(["ubuntu-latest", "windows-latest"]);
+      expect(legsFor(jobName, "true", "true", "workflow_dispatch", FORK_REPOSITORY).sort()).toEqual(["macos-latest", "ubuntu-latest", "windows-latest"]);
     }
   });
 
@@ -482,7 +487,7 @@ describe("the aggregate gate", () => {
     expect(gatedJobs.sort()).toEqual(Object.keys(jobs).filter(name => name !== "ci").sort());
   });
 
-  test.skipIf(cannotRunGate)("expects the macOS jobs to skip in the alexalok/opencodex fork", () => {
+  test.skipIf(cannotRunGate)("expects the macOS jobs to skip in the alexalok/opencodex fork outside dispatch", () => {
     const nightly = { ...PR_WITHOUT_NATIVE, eventName: "schedule" };
     const upstream = runGate(nightly, {}).expectations;
     const fork = runGate({ ...nightly, macosEnabled: "false" }, {}).expectations;

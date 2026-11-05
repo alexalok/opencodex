@@ -284,7 +284,7 @@ describe("GitHub Actions hardening", () => {
     // Pull requests never run macOS shards; they run after merge, on push to
     // dev/main/preview. ci-scope-reduction.test.ts evaluates this condition
     // against the events that select the job.
-    expect((ci.jobs?.["platform-macos"] as { if?: string })?.if).toBe("github.event_name != 'pull_request' && github.repository != 'alexalok/opencodex'");
+    expect((ci.jobs?.["platform-macos"] as { if?: string })?.if).toBe("github.event_name != 'pull_request' && (github.repository != 'alexalok/opencodex' || github.event_name == 'workflow_dispatch')");
 
     // Whole-pool control lives on dispatch so every push does not pay the
     // unsharded macOS critical path. Keep the unsharded full-membership control and the
@@ -300,7 +300,7 @@ describe("GitHub Actions hardening", () => {
     } | undefined;
     expect(macosControlJob?.name).toBe("macos control");
     expect(macosControlJob?.needs).toBe("changes");
-    expect(macosControlJob?.if).toBe("github.repository != 'alexalok/opencodex' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && (github.event.inputs.lane == '' || github.event.inputs.lane == 'all' || github.event.inputs.lane == 'macos-control'))");
+    expect(macosControlJob?.if).toBe("(github.repository != 'alexalok/opencodex' || github.event_name == 'workflow_dispatch') && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && (github.event.inputs.lane == '' || github.event.inputs.lane == 'all' || github.event.inputs.lane == 'macos-control'))");
     expect(macosControlJob?.["runs-on"]).toBe("macos-latest");
     expect(macosControlJob?.strategy).toBeUndefined();
     const macosControlSteps = macosControlJob?.steps ?? [];

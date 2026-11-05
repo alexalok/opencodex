@@ -178,8 +178,8 @@ jobs:
 
   macos-launchd:
     # Pull requests run the Linux leg only; macOS runs on manual dispatch and main/preview push.
-    # Never in the alexalok/opencodex fork, which runs no hosted macOS jobs.
-    if: github.event_name != 'pull_request' && github.repository != 'alexalok/opencodex'
+    # Never in the alexalok/opencodex fork unless dispatched by hand.
+    if: github.event_name != 'pull_request' && (github.repository != 'alexalok/opencodex' || github.event_name == 'workflow_dispatch')
     runs-on: macos-latest
     timeout-minutes: 10
     steps:
