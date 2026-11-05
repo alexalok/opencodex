@@ -84,6 +84,6 @@ test("app changes reach the macOS widget job after merge", () => {
   // The widget runs on macOS, so pull requests skip it and the push into dev runs it.
   expect(workflow.on?.push?.paths ?? []).toContain("app/**");
   const widget = workflow.jobs?.widget;
-  expect(widget?.if).toBe("github.event_name != 'pull_request'");
+  expect(widget?.if).toBe("github.event_name != 'pull_request' && github.repository != 'alexalok/opencodex'");
   expect(Array.isArray(widget?.needs) ? widget?.needs : []).toContain("changes");
 });

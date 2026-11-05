@@ -36,8 +36,9 @@ jobs:
       fail-fast: false
       matrix:
         # Pull requests run the ubuntu leg only; macos and windows run on push
-        # to main/preview and on manual dispatch.
-        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest","macos-latest","windows-latest"]') }}
+        # to main/preview and on manual dispatch. The alexalok/opencodex fork
+        # runs no hosted macOS jobs.
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || github.repository == 'alexalok/opencodex' && '["ubuntu-latest","windows-latest"]' || '["ubuntu-latest","macos-latest","windows-latest"]') }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
