@@ -4,6 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { en } from "../src/i18n/en";
 import { interpolate, type TFn } from "../src/i18n/shared";
+import { AutoReviewControls } from "../src/pages/auto-review-controls";
+import { LanguageProvider } from "../src/i18n/provider";
 import { useAutoReviewSettings, type AutoReviewSettingsController } from "../src/pages/use-auto-review-settings";
 
 const t: TFn = (key, vars) => interpolate(en[key], vars);
@@ -260,4 +262,32 @@ test("a stale save response after a proxy change cannot overwrite the new proxy"
   });
   expect(controller.data).toEqual({ enabled: false, model: "server-b/model" });
   expect(feedback).toHaveLength(0);
+});
+
+ test("effort-only saves and clearing retain the confirmed response", async () => {
+  respond = async (_url, init) => init?.method === "PUT"
+    ? response({ ok: true, enabled: true, model: "gpt-6-luna", ...JSON.parse(String(init.body)), catalogRefresh: { status: "committed" } })
+    : response({ enabled: true, model: "gpt-6-luna" });
+  await paint("/a");
+  await act(async () => { await controller.load(); });
+  await act(async () => { await controller.save({ reasoningEffort: "high" }); });
+  expect(controller.data).toEqual({ enabled: true, model: "gpt-6-luna", reasoningEffort: "high" });
+  await act(async () => { await controller.save({ reasoningEffort: "" }); });
+  expect(controller.data).toEqual({ enabled: true, model: "gpt-6-luna" });
+ });
+
+test("review controls display native GPT choices and submit effort separately", async () => {
+  const writes: unknown[] = [];
+  await act(async () => { root.render(<LanguageProvider><AutoReviewControls
+    data={{ enabled: true, model: "gpt-6-luna", reasoningEffort: "high" }} saving={false}
+    options={[{ value: "gpt-6-luna", label: "gpt-6-luna" }, { value: "gateway/model", label: "gateway/model" }]}
+    save={async patch => { writes.push(patch); }} t={t} /></LanguageProvider>); });
+  expect(host.textContent).toContain("gpt-6-luna");
+  const effort = host.querySelector<HTMLButtonElement>('[aria-label="Reviewer reasoning"]');
+  expect(effort).not.toBeNull();
+  await act(async () => { effort!.click(); });
+  const option = [...win.document.querySelectorAll('[role="option"]')].find(node => node.textContent === "Medium");
+  expect(option).toBeDefined();
+  await act(async () => { (option as unknown as HTMLButtonElement).click(); });
+  expect(writes).toEqual([{ reasoningEffort: "medium" }]);
 });

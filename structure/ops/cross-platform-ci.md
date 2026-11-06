@@ -6,7 +6,7 @@ The [desktop membership contract](../runtime.md#codex-desktop-process-membership
 
 `.github/workflows/ci.yml` is the ordinary quality gate for runtime/package changes. A pull
 request verifies Linux and TypeScript: Linux runs the suite in four shards with a separate
-`gates` job alongside the scoped docs, structure, packaging, keyring, and npm-global jobs. The
+`gates` job alongside the scoped docs, structure, packaging, keyring, and npm-global jobs. Linux shard jobs have a 20-minute total bound, including setup and cleanup; individual batch deadlines remain 120 seconds. The
 `platform-macos` macOS suite, the `widget` macOS widget + Tauri app-bundle build, and the
 `desktop-shell` Rust toolchain build are native-gated: they run on the promotion pushes to
 `main` and `preview` and on explicit `workflow_dispatch`, and on a pull request only when the

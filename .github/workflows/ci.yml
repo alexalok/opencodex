@@ -659,10 +659,10 @@ jobs:
     needs: changes
     if: github.event_name != 'pull_request' || (needs.changes.outputs.ci == 'true' && needs.changes.outputs.fast != 'true')
     runs-on: ubuntu-latest
-    # A quarter of the suite. A shard that needs longer than this is wedged, not
-    # slow — the old 30-minute ceiling was margin for the Windows leg, which no
-    # longer runs here (see platform-windows).
-    timeout-minutes: 15
+    # Shard 3 exhausted 15 minutes twice, including a run with all 64 batches
+    # reporting zero failures. Leave setup and cleanup margin for the growing
+    # suite; individual test batches retain their independent 120-second bound.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:

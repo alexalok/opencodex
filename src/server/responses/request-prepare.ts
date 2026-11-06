@@ -1,3 +1,4 @@
+import { isApprovalReviewRequest } from "./auto-review-effort";
 import { projectLocalModelRefusalLog } from "../request-log-failure-detail";
 import { inputAdmissionRefusalMessage } from "./input-admission";
 import { clientFacingModelLabel, clientFacingModelText } from "../../lib/error-destination";
@@ -488,6 +489,9 @@ export async function prepareResponsesRequest(
   let clientToolCatalogRestriction: ClientToolCatalogRestriction | undefined;
   try {
     parsed = parseRequest(body);
+    parsed._approvalReviewRequest = inboundWire === "responses" && !options.internalDecisionCall
+      && !options.compactionRoutingOverride && !options.visionDescribeTerminal
+      && isApprovalReviewRequest(body, req.headers, options.inboundTransport);
     // Antigravity direct lane: the body carried only the request settings, so the parse above
     // produced them with an empty conversation; the conversation itself comes straight from the
     // client body. Inside this try so a decode error answers exactly like a parse error.
@@ -1166,6 +1170,7 @@ export async function prepareResponsesRequest(
             }
           }
           bindTurnTerminationScope(reparsed, resolvedConversationId);
+          reparsed._approvalReviewRequest = parsed._approvalReviewRequest;
           parsed = reparsed;
           // The recovery mutated `body.input` in place, so `_rawBody` now carries decrypted task
           // text. Bar it from the continuation cache before any recording path can reach it —
