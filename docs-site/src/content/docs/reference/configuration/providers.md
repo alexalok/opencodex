@@ -635,18 +635,9 @@ recommends `ocx sync` when a refresh can be retried. If a refresh fails, the set
 and the command exits 1. Resolve the failure before syncing. The [provider
 guide](/guides/providers/#approval-reviewer-per-provider) has the operator workflow and a worked example.
 
+The selector includes visible native GPT models as well as routed provider models. **Reviewer reasoning** optionally sets `autoReviewOverride.reasoningEffort` while the override is enabled. **Use requested effort** (the default) leaves Codex's choice unchanged; selecting a level rewrites only approval-review requests. The effort works even when the model is blank and Codex's existing reviewer selection remains in effect. Disabling the override stops both overrides and retains the saved choices. Normal chats, code reviews (`/review`), and other subagents keep their requested effort. Destination model limits and configured effort caps still apply.
 
-The selector includes visible native GPT models as well as routed provider models. **Reviewer
-reasoning** optionally sets `autoReviewOverride.reasoningEffort` while the override is enabled.
-**Use requested effort** (the default) leaves Codex's choice unchanged; selecting a level rewrites
-only approval-review requests. The effort works even when the model is blank and Codex's existing
-reviewer selection remains in effect. Disabling the override stops both overrides and retains the
-saved choices. Normal chats, code reviews (`/review`), and other subagents keep their requested
-effort. Destination model limits and configured effort caps still apply.
-
-Recognition uses Codex's explicit `guardian` subagent label or `guardian_review` thread source,
-never the model name or prompt text. For WebSockets it uses each frame's metadata, not the
-connection headers. Missing, malformed, or conflicting markers leave the effort unchanged.
+Recognition uses Codex's explicit `guardian` subagent label or `guardian_review` thread source, never the model name or prompt text. For WebSockets it uses each frame's metadata, not the connection headers. Missing, malformed, or conflicting markers leave the effort unchanged.
 
 When native OpenAI rows are included and the final catalog has an ordinary bare native row
 other than Reserve (hidden rows count), OpenCodex keeps the hidden `codex-auto-review` row so
