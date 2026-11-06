@@ -111,12 +111,11 @@ describe("GitHub Actions hardening", () => {
     };
 
     // Job-scoped: a global count still passes if values are swapped between jobs.
-    // Pin ownership explicitly. The Windows leg is sharded like the Linux ones
-    // since 8034cd7c0 — a single leg reached 30m on a green suite and was killed
-    // in cleanup, so each shard now holds the same 15m a Linux shard holds. A
-    // shard that needs longer is wedged, not slow.
+    // Linux needs setup/cleanup margin beyond its complete test batches: the
+    // 15-minute job bound cancelled two shard-3 runs without failing tests.
+    // Individual batch deadlines and all shard membership remain unchanged.
     expect(ci.jobs?.["select-windows-runner"]?.["timeout-minutes"]).toBe(2);
-    expect(ci.jobs?.test?.["timeout-minutes"]).toBe(15);
+    expect(ci.jobs?.test?.["timeout-minutes"]).toBe(20);
     expect(ci.jobs?.gates?.["timeout-minutes"]).toBe(15);
     // 20 with four shards: run 40766068492 cancelled two of three at the
     // 20-minute wall with no failing tests. See the rationale in ci.yml.
