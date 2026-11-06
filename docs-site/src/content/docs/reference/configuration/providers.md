@@ -661,7 +661,6 @@ recommends `ocx sync` when a refresh can be retried. If a refresh fails, the set
 and the command exits 1. Resolve the failure before syncing. The [provider
 guide](/guides/providers/#approval-reviewer-per-provider) has the operator workflow and a worked example.
 
-
 The selector includes visible native GPT models as well as routed provider models. **Reviewer
 reasoning** optionally sets `autoReviewOverride.reasoningEffort` while the override is enabled.
 **Use requested effort** (the default) leaves Codex's choice unchanged; selecting a level rewrites
