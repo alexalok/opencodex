@@ -86,7 +86,7 @@ export function useAutoReviewSettings(
         throw new Error(t("models.saveFailed"));
       }
       if (scope.apiBase !== apiBase || scope.generation !== generation) return;
-      setState({ apiBase, data: { enabled: next.enabled, model: next.model }, saving: true });
+      setState({ apiBase, data: { enabled: next.enabled, model: next.model, ...(next.reasoningEffort ? { reasoningEffort: next.reasoningEffort } : {}) }, saving: true });
       if (!next.catalogRefresh || next.catalogRefresh.status !== "committed") {
         publishFeedback(false, t("codexAuth.catalogRefreshPending"));
       }

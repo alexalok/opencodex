@@ -1,4 +1,4 @@
-{
+{ "responses-auto-review-effort.test.ts": "responses",
   "responses-forward-client-headers-live.test.ts": "responses",
   "pool-retry-client-metadata.test.ts": "responses",
   "chat-inbound-tool-strict-defaults.test.ts": "responses",

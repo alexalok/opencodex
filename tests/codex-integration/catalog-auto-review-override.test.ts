@@ -121,3 +121,12 @@ describe("finalizeAutoReviewModelOverride with the global override", () => {
     expect(routed?.auto_review_model_override).toBe("gpt-5.6-sol");
   });
 });
+
+test("global native GPT reviewer resolves without changing its effort catalog", () => {
+  home = codexHomeWith(ROOT);
+  process.env.CODEX_HOME = home;
+  const models = rows();
+  expect(finalizeAutoReviewModelOverride(models, [], configWith({ enabled: true, model: "gpt-5.6-sol", reasoningEffort: "high" }))).toBe("applied");
+  expect(models.every(row => row.auto_review_model_override === "gpt-5.6-sol")).toBe(true);
+  expect(models[0]!.default_reasoning_level).toBeUndefined();
+});
