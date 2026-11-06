@@ -29,6 +29,7 @@ export const RESPONSES_CORE_MODULES = [
   "core-combo-failure.ts",
   "core-auth.ts",
   "core-normalize.ts",
+  "auto-review-effort.ts",
   "core-combo.ts",
   "deferred-send-reporter.ts",
   "combo-requested-effort.ts",
