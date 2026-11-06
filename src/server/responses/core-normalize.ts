@@ -1,3 +1,4 @@
+import { applyAutoReviewEffort } from "./auto-review-effort";
 import { effectiveAzureOutputBudget } from "../../adapters/azure";
 import { normalizeThinkingOptions } from "../../clients/reasoning-controls";
 import { nativeEffortClamp, shouldApplyNativeEffortClamp } from "../../codex/catalog";
@@ -341,6 +342,9 @@ export async function applyFinalRouteRequestNormalization(args: {
       }
     }
   }
+
+  const reviewEffort = applyAutoReviewEffort(parsed, config);
+  if (reviewEffort) logCtx.requestedEffort = reviewEffort.from ? `${reviewEffort.from}->${reviewEffort.to}` : reviewEffort.to;
 
   {
     // Native passthrough keeps its snapshot-owned effort contract, including saved exclusions.

@@ -291,6 +291,10 @@ export function autoReviewOverrideConfigError(value: unknown, field = "autoRevie
   if (block.enabled !== undefined && typeof block.enabled !== "boolean") {
     return `${field}.enabled must be a boolean`;
   }
+  if (block.reasoningEffort !== undefined && block.reasoningEffort !== ""
+    && (typeof block.reasoningEffort !== "string" || !isDeclaredReasoningEffort(block.reasoningEffort))) {
+    return `${field}.reasoningEffort must be a supported effort or an empty string`;
+  }
   return autoReviewModelTargetConfigError(block.model, `${field}.model`, true);
 }
 
