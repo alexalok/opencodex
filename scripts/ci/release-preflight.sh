@@ -33,7 +33,15 @@ fail() {
 
 # Channel and dist-tag, exactly as the publish job derives them from the dispatched ref.
 expected_tag=""
-case "$GITHUB_REF" in
+release_channel_ref="$GITHUB_REF"
+if [[ "${GITHUB_REPOSITORY:-}" == "alexalok/opencodex" ]]; then
+  if [[ ! "$GITHUB_REF" =~ ^refs/heads/releases/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+    echo "::error::Fork releases must run from releases/vX.Y.Z"
+    exit 1
+  fi
+  release_channel_ref="refs/heads/main" # Stable channel only; never checks out main.
+fi
+case "$release_channel_ref" in
   refs/heads/main)
     expected_tag="latest"
     [[ "$RELEASE_VERSION" != *-* ]] \

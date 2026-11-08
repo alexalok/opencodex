@@ -6,6 +6,7 @@ const ALLOWED_RELEASE_REFS = new Set([
 ]);
 
 function validateReleaseDispatch({
+  repository,
   eventName,
   ref,
   expectedSha,
@@ -15,8 +16,8 @@ function validateReleaseDispatch({
     return `Release must be triggered by workflow_dispatch; got ${eventName || "(empty)"}.`;
   }
 
-  if (!ALLOWED_RELEASE_REFS.has(ref)) {
-    return `Release must run from main or preview; got ${ref || "(empty)"}.`;
+  if (repository === "alexalok/opencodex" ? !/^refs\/heads\/releases\/v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(ref || "") : !ALLOWED_RELEASE_REFS.has(ref)) {
+    return `Release must run from ${repository === "alexalok/opencodex" ? "releases/vX.Y.Z" : "main or preview"}; got ${ref || "(empty)"}.`;
   }
 
   if (!expectedSha) {

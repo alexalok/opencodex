@@ -63,6 +63,7 @@ jobs:
           );
 
           const failure = validateReleaseDispatch({
+            repository: process.env.GITHUB_REPOSITORY,
             eventName: process.env.GITHUB_EVENT_NAME,
             ref: process.env.GITHUB_REF,
             expectedSha: process.env.EXPECTED_SHA,
@@ -1048,7 +1049,15 @@ jobs:
         run: |
           set -euo pipefail
 
-          case "$GITHUB_REF" in
+          release_channel_ref="$GITHUB_REF"
+          if [[ "${GITHUB_REPOSITORY:-}" == "alexalok/opencodex" ]]; then
+            if [[ ! "$GITHUB_REF" =~ ^refs/heads/releases/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+              echo "::error::Fork releases must run from releases/vX.Y.Z"
+              exit 1
+            fi
+            release_channel_ref="refs/heads/main" # Stable channel only; never checks out main.
+          fi
+          case "$release_channel_ref" in
             refs/heads/main)
               expected_tag="latest"
               if [[ "$RELEASE_VERSION" == *-* ]]; then

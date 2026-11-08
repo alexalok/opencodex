@@ -529,3 +529,16 @@ reviewers (Codex, CodeRabbit).
   keep translated locales from contradicting the English source).
 - **Privacy:** `bun run privacy:scan` must stay green; never introduce logging
   of request bodies, API keys, or account identifiers.
+
+## Fork release publication and external security review
+
+For `alexalok/opencodex`, publish through GitHub Actions `release.yml` from a
+merged `releases/vX.Y.Z` commit, with its exact SHA and the `latest` dist-tag.
+Run the dry run first. Do not use the inherited local `scripts/release.ts`
+helper, which follows upstream branch and direct-push policy.
+
+Security review for this fork is performed externally through Codex Security
+Cloud. Record the external review reference and reviewed commit in the PR before
+merge; resolve applicable findings before integration or publication. Local tests
+and agent review do not substitute for that review. This policy does not assert
+that any particular commit has already passed external security review.
