@@ -40,8 +40,10 @@ on:
     # Cross-platform CI run for the exact release SHA and states that a
     # pull-request run does not qualify, so removing either branch breaks
     # publication.
+  # Fork releases require push-event CI evidence at the exact merged release SHA.
+  # Existing fork macOS exclusions still apply; macOS validation remains manual.
   push:
-    branches: [main, preview]
+    branches: [main, preview, "releases/v*.*.*"]
     paths:
       - "Dockerfile"
       - "compose.yaml"
