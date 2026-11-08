@@ -325,7 +325,7 @@ describe("the push trigger", () => {
     // run for the exact release SHA and states that a pull_request run does not
     // qualify, so removing either breaks publication. dev is deliberately absent
     // (CI policy): cross-platform legs run on dev only by manual dispatch.
-    expect([...(workflow.on?.push?.branches ?? [])].sort()).toEqual(["main", "preview"]);
+    expect([...(workflow.on?.push?.branches ?? [])].sort()).toEqual(["main", "preview", "releases/v*.*.*"]);
   });
 });
 
