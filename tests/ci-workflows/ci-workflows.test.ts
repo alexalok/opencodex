@@ -184,7 +184,7 @@ describe("GitHub Actions hardening", () => {
     // Every job that runs tests/ must fetch tags, because one of those tests reads
     // them. tests/ci-workflows/release-version-line.test.ts compares package.json against the
     // newest release tag, and actions/checkout brings no tags by default: git is
-    // present, `git tag --list` exits 0, and stdout is empty. The check then has an
+    // present, `git tag ${fork_tag_scope:+"$fork_tag_scope"} --list` exits 0, and stdout is empty. The check then has an
     // empty set, cannot fail, and a version regression rides through green. That is
     // how the first cut of that test shipped, so pin the flag rather than trusting a
     // comment. Asserted per job so a future edit cannot drop it from one leg while
@@ -871,7 +871,7 @@ describe("GitHub Actions hardening", () => {
       ?.split(/\n {6}- name:/)[0];
     expect(orderingStep).toBeDefined();
     expect(orderingStep).toContain(
-      'git tag --list \'v*\' | bun scripts/version-line.ts assert-releasable "$RELEASE_VERSION" $allow',
+      'git tag ${fork_tag_scope:+"$fork_tag_scope"} --list \'v*\' | bun scripts/version-line.ts assert-releasable "$RELEASE_VERSION" $allow',
     );
     expect(orderingStep).toContain('existing_tag_sha="$(git rev-parse');
     expect(orderingStep).toContain('[ "$DRY_RUN" = "true" ]');
