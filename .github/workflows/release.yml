@@ -1238,6 +1238,14 @@ jobs:
           RESUME: ${{ inputs.resume-after-npm-publish }}
         run: |
           set -euo pipefail
+          fork_tag_scope=""
+          if [[ "${GITHUB_REPOSITORY:-}" == "alexalok/opencodex" ]]; then
+            fork_tag_scope="--merged=HEAD"
+            # Fail closed: never move the shared npm latest pointer backwards.
+            fork_package="$(node -p 'require("./package.json").name')"
+            fork_latest="$(npm view "$fork_package" dist-tags.latest --json --fetch-retries=0 --fetch-timeout=8000)" || exit 1
+            bun -e 'import { compareVersions } from "./scripts/version-line.ts"; const latest = JSON.parse(process.argv[2]); if (typeof latest !== "string" || compareVersions(process.argv[1], latest) < 0) { throw new Error("Fork publication would downgrade npm latest or latest is unverifiable"); }' "$RELEASE_VERSION" "$fork_latest" || exit 1
+          fi
           allow=""
           existing_tag_sha="$(git rev-parse -q --verify "refs/tags/v${RELEASE_VERSION}^{commit}" || true)"
           # Dry-run re-dispatches and the resume path both legitimately find the tag
@@ -1245,7 +1253,7 @@ jobs:
           if { [ "$DRY_RUN" = "true" ] || [ "$RESUME" = "true" ]; } && [ -n "$existing_tag_sha" ] && [ "$existing_tag_sha" = "$GITHUB_SHA" ]; then
             allow="--allow-existing-tag-at-head"
           fi
-          git tag --list 'v*' | bun scripts/version-line.ts assert-releasable "$RELEASE_VERSION" $allow
+          git tag ${fork_tag_scope:+"$fork_tag_scope"} --list 'v*' | bun scripts/version-line.ts assert-releasable "$RELEASE_VERSION" $allow
 
       - name: Build and validate release changelog
         env:

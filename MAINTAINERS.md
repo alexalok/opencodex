@@ -245,3 +245,9 @@ Cloud. Record the external review reference and reviewed commit in the PR before
 merge; resolve applicable findings before integration or publication. Local tests
 and agent review do not substitute for that review. This policy does not assert
 that any particular commit has already passed external security review.
+
+Fork version ordering uses only tags reachable from the selected release commit.
+Unrelated upstream tags do not close fork backport lines. Duplicate tags and npm
+versions remain prohibited. Both preflight and publication must read npm `latest`
+and refuse a lower candidate or an unverifiable registry response; backports do
+not authorize moving `latest` backwards. Upstream global ordering is unchanged.

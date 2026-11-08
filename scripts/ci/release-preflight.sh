@@ -114,11 +114,19 @@ case "$npm_state" in
 esac
 
 # Cross-channel ordering against the whole tag set: the gate run 35783865160 reached too late.
+fork_tag_scope=""
+if [[ "${GITHUB_REPOSITORY:-}" == "alexalok/opencodex" ]]; then
+  fork_tag_scope="--merged=HEAD"
+  # Fail closed: never move the shared npm latest pointer backwards.
+  fork_package="$(node -p 'require("./package.json").name')"
+  fork_latest="$(npm view "$fork_package" dist-tags.latest --json --fetch-retries=0 --fetch-timeout=8000)" || exit 1
+  bun -e 'import { compareVersions } from "./scripts/version-line.ts"; const latest = JSON.parse(process.argv[2]); if (typeof latest !== "string" || compareVersions(process.argv[1], latest) < 0) { throw new Error("Fork publication would downgrade npm latest or latest is unverifiable"); }' "$RELEASE_VERSION" "$fork_latest" || exit 1
+fi
 allow=""
 if [[ ( "$dry_run" == "true" || "$resume" == "true" ) && -n "$existing_tag_sha" && "$existing_tag_sha" == "$GITHUB_SHA" ]]; then
   allow="--allow-existing-tag-at-head"
 fi
-if ! git tag --list 'v*' | bun "$repo_root/scripts/version-line.ts" assert-releasable "$RELEASE_VERSION" ${allow:+"$allow"}; then
+if ! git tag ${fork_tag_scope:+"$fork_tag_scope"} --list 'v*' | bun "$repo_root/scripts/version-line.ts" assert-releasable "$RELEASE_VERSION" ${allow:+"$allow"}; then
   fail "${RELEASE_VERSION} does not outrank the current tag set"
 fi
 
