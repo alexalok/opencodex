@@ -18,6 +18,7 @@
 import type { OcxConfig } from "../types";
 import { isPassiveRead, runPassiveRead } from "../lib/passive-read";
 import { peekResetCreditExpiry, noteResetCreditInspect } from "../codex/reset-credit-expiry-memo";
+import { captureMainAccountIdentityGeneration } from "../codex/main-account-cache";
 import { OPENAI_CODEX_PROVIDER_ID } from "../providers/openai-tiers-destination";
 import type { CodexCapacityWindowAggregation } from "../providers/codex-capacity";
 import type { QuotaPoolAccountState, QuotaPoolWindow } from "./contract";
@@ -71,7 +72,10 @@ export interface QuotaTray {
 }
 
 export interface QuotaTrayDeps extends QuotaPoolDeps {
-  /** Background reset-credit inspect; defaults to the WHAM client. Throws on failure. */
+  /**
+   * Background reset-credit inspect; throws on failure. The default WHAM client records its own
+   * result in the memo, bound to the physical main identity it authenticated as.
+   */
   inspectResetCredits?: (config: OcxConfig, accountId: string) => Promise<{ credits: { granted_at: string; expires_at: string }[]; available_count?: number }>;
 }
 
@@ -203,7 +207,12 @@ async function refreshResetCreditExpiries(config: OcxConfig, accountIds: readonl
     for (const id of due) {
       lastInspectAttempt.set(id, (deps.now ?? Date.now)());
       try {
-        noteResetCreditInspect(id, await (deps.inspectResetCredits ?? defaultInspect)(config, id), (deps.now ?? Date.now)());
+        if (deps.inspectResetCredits) {
+          const mainIdentityGeneration = captureMainAccountIdentityGeneration();
+          noteResetCreditInspect(id, await deps.inspectResetCredits(config, id), (deps.now ?? Date.now)(), mainIdentityGeneration);
+        } else {
+          await defaultInspect(config, id);
+        }
       } catch {
         // Count-only until the next retry window.
       }

@@ -18,7 +18,9 @@ import { aggregateCodexPoolCapacity, codexCapacityWeight } from "../../src/provi
 import { ensureQuotaPoolIdentity, resetQuotaPoolIdentityMemoForTests } from "../../src/quota-pool/identity";
 import { saveCodexAccountCredential } from "../../src/codex/account-store";
 import { clearAccountQuota, setAccountQuotaFromParsed } from "../../src/codex/quota";
-import { resetResetCreditExpiryMemoForTests } from "../../src/codex/reset-credit-expiry-memo";
+import { noteResetCreditInspect, peekResetCreditExpiry, resetResetCreditExpiryMemoForTests } from "../../src/codex/reset-credit-expiry-memo";
+import { captureMainAccountIdentityGeneration, observeMainQuotaIdentity } from "../../src/codex/main-account-cache";
+import { MAIN_CODEX_ACCOUNT_ID } from "../../src/codex/account-id";
 import { getAccountSet, saveCredential } from "../../src/oauth/store";
 import { clearAccountQuotaCache, setCachedProviderAccountQuotaForTests } from "../../src/providers/quota";
 import { setProviderQuotaReportCache } from "../../src/providers/quota/report-cache";
@@ -232,5 +234,35 @@ describe("ocx.quota-tray/1", () => {
     expect(inspected).toHaveLength(2);
     await refreshAt(now + RESET_CREDIT_EXPIRY_MEMO_TTL_MS + RESET_CREDIT_INSPECT_RETRY_MS);
     expect(inspected).toHaveLength(3);
+  });
+});
+
+describe("reset-credit expiry memo", () => {
+  const credits = (expiresAt: number) => ({ available_count: 1, credits: [{ expires_at: new Date(expiresAt).toISOString() }] });
+
+  test("the native main memo is bound to the physical identity it was inspected for", () => {
+    observeMainQuotaIdentity("tray-memo-physical-a");
+    const generationA = captureMainAccountIdentityGeneration();
+    noteResetCreditInspect(MAIN_CODEX_ACCOUNT_ID, credits(NOW + 30 * HOUR), NOW, generationA);
+    expect(peekResetCreditExpiry(MAIN_CODEX_ACCOUNT_ID, 1, NOW)).toEqual({ fresh: true, soonestExpiresAt: NOW + 30 * HOUR });
+
+    // Account B signs in with the same credit count: A's expiry must not be shown for it.
+    observeMainQuotaIdentity("tray-memo-physical-b");
+    expect(peekResetCreditExpiry(MAIN_CODEX_ACCOUNT_ID, 1, NOW)).toEqual({ fresh: false });
+
+    // An inspect that ran under A but finished after the switch is not recorded for B.
+    noteResetCreditInspect(MAIN_CODEX_ACCOUNT_ID, credits(NOW + 40 * HOUR), NOW, generationA);
+    expect(peekResetCreditExpiry(MAIN_CODEX_ACCOUNT_ID, 1, NOW)).toEqual({ fresh: false });
+    noteResetCreditInspect(MAIN_CODEX_ACCOUNT_ID, credits(NOW + 50 * HOUR), NOW);
+    expect(peekResetCreditExpiry(MAIN_CODEX_ACCOUNT_ID, 1, NOW)).toEqual({ fresh: false });
+
+    noteResetCreditInspect(MAIN_CODEX_ACCOUNT_ID, credits(NOW + 50 * HOUR), NOW, captureMainAccountIdentityGeneration());
+    expect(peekResetCreditExpiry(MAIN_CODEX_ACCOUNT_ID, 1, NOW)).toEqual({ fresh: true, soonestExpiresAt: NOW + 50 * HOUR });
+  });
+
+  test("pool accounts are keyed by their own id and need no identity generation", () => {
+    noteResetCreditInspect("tray-memo-pool", credits(NOW + 30 * HOUR), NOW);
+    observeMainQuotaIdentity("tray-memo-physical-c");
+    expect(peekResetCreditExpiry("tray-memo-pool", 1, NOW)).toEqual({ fresh: true, soonestExpiresAt: NOW + 30 * HOUR });
   });
 });

@@ -142,7 +142,7 @@ export function createResetCreditWhamClient(config: OcxConfig, accountId: string
       const parsed = await readResetCreditJson(resp, AbortSignal.timeout(8000));
       if (!parsed.ok) throw new Error("invalid upstream reset-credit response");
       const credits = safeResetCreditsDto(parsed.value);
-      noteResetCreditInspect(accountId, credits);
+      noteResetCreditInspect(accountId, credits, Date.now(), auth.mainProof?.writer.identityGeneration);
       return credits;
     }),
     consume: redeemRequestId => run(async auth => {
@@ -307,7 +307,7 @@ export async function inspectResetCredits(config: OcxConfig, accountId: string, 
         return jsonResponse({ error: "Invalid upstream reset-credit response" }, 502);
       }
       const credits = safeResetCreditsDto(parsed.value);
-      noteResetCreditInspect(accountId, credits);
+      noteResetCreditInspect(accountId, credits, Date.now(), auth.mainProof?.writer.identityGeneration);
       return jsonResponse(credits);
     } finally {
       detachBodyAbort();
