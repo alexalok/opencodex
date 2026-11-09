@@ -62,7 +62,8 @@ computes no number itself, so every value it shows is here:
 - `blocked` while the unscoped `availability` window exists (for a report: any exhausted unscoped
   window), with `recoversAt` and the window (`5h`, `weekly` or `other`) that holds it:
   `pooledBlockHolder` takes it from the same live eligible evidence as `availability`, the
-  last-resetting block of the account that recovers first; `resetCredits`, the sum over the accounts;
+  last-resetting block of the account that recovers first; `resetCredits`, the sum over the accounts
+  except a stored pool row duplicating the main login (the same physical account);
 - per account: display `name` (alias, else email, else log label). Emails follow
   `privacy.maskEmails` like every other account surface: Codex rows arrive projected from the
   account list, and OAuth rows go through `projectEmail` here,

@@ -170,6 +170,14 @@ function trayAccount(row: TrackedAccount, now: number, stale: string[]): QuotaTr
   };
 }
 
+/**
+ * Reset credits available across a provider's accounts. A stored pool row that duplicates the
+ * main login is the same physical account, so its credits are already counted on the main row.
+ */
+export function providerResetCredits(rows: readonly TrackedAccount[]): number {
+  return rows.reduce((sum, row) => row.meta.duplicateMain ? sum : sum + Math.max(0, row.meta.resetCredits ?? 0), 0);
+}
+
 function trayProvider(collected: CollectedQuotaProvider, now: number, stale: string[]): QuotaTrayProvider | null {
   const fiveHour = poolWindow(collected, "fiveHour", now);
   const weekly = poolWindow(collected, "weekly", now);
@@ -181,7 +189,7 @@ function trayProvider(collected: CollectedQuotaProvider, now: number, stale: str
     ...(fiveHour ? { fiveHour } : {}),
     ...(weekly ? { weekly } : {}),
     ...(block ? { blocked: block } : {}),
-    resetCredits: accounts.reduce((sum, account) => sum + (account.resetCredits?.count ?? 0), 0),
+    resetCredits: providerResetCredits(collected.rows),
     accounts,
   };
 }

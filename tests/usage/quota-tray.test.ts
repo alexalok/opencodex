@@ -13,7 +13,8 @@ import type { StoredAccountQuota } from "../../src/codex/quota-types";
 import { codexQuotaWindows } from "../../src/quota-pool/assemble";
 import { pooledBlockHolder, pooledRecovery, pooledWindows, type PooledAccountInput } from "../../src/quota-pool/pooled";
 import type { QuotaPoolWindow } from "../../src/quota-pool/contract";
-import { readQuotaTray, resetQuotaTrayStateForTests, RESET_CREDIT_INSPECT_RETRY_MS } from "../../src/quota-pool/tray";
+import { providerResetCredits, readQuotaTray, resetQuotaTrayStateForTests, RESET_CREDIT_INSPECT_RETRY_MS } from "../../src/quota-pool/tray";
+import type { TrackedAccount } from "../../src/quota-pool/assemble";
 import { RESET_CREDIT_EXPIRY_MEMO_TTL_MS } from "../../src/codex/reset-credit-expiry-memo";
 import { aggregateCodexPoolCapacity, codexCapacityWeight } from "../../src/providers/codex-capacity";
 import { ensureQuotaPoolIdentity, resetQuotaPoolIdentityMemoForTests } from "../../src/quota-pool/identity";
@@ -294,5 +295,17 @@ describe("pooled block holder", () => {
 
   test("an account that can run means there is no block to hold", () => {
     expect(pooledBlockHolder([account(true, spent("5h", NOW + HOUR)), account(true)], NOW)).toBeUndefined();
+  });
+});
+
+describe("provider reset credits", () => {
+  const row = (accountId: string, resetCredits: number, duplicateMain?: true): TrackedAccount => ({
+    account: { provider: "openai", accountRef: accountId, state: "available", windows: [] },
+    pool: { eligible: !duplicateMain, weight: 1, windows: [] },
+    meta: { accountId, resetCredits, ...(duplicateMain ? { duplicateMain } : {}) },
+  });
+
+  test("a pool row duplicating the main login does not count its credits twice", () => {
+    expect(providerResetCredits([row("__main__", 2), row("stored-main-copy", 2, true), row("other", 1)])).toBe(3);
   });
 });

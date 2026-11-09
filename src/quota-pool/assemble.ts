@@ -229,7 +229,8 @@ function reportSource(report: ProviderQuotaReport): QuotaPoolSource {
 export interface TrackedAccount {
   account: QuotaPoolAccount;
   pool: PooledAccountInput;
-  meta: { accountId: string; alias?: string; email?: string; resetCredits?: number };
+  /** `duplicateMain`: a stored pool row for the physical account the native main login also shows. */
+  meta: { accountId: string; alias?: string; email?: string; resetCredits?: number; duplicateMain?: true };
 }
 
 function codexAccounts(identity: QuotaPoolIdentity, accounts: Awaited<ReturnType<typeof listCodexAuthAccountsSnapshot>>["accounts"], now: number): TrackedAccount[] {
@@ -258,6 +259,7 @@ function codexAccounts(identity: QuotaPoolIdentity, accounts: Awaited<ReturnType
         ...(typeof dto.alias === "string" && dto.alias.trim() ? { alias: dto.alias.trim() } : {}),
         ...(typeof dto.email === "string" && dto.email.trim() ? { email: dto.email.trim() } : {}),
         ...(finite(resetCredits) && resetCredits >= 0 ? { resetCredits } : {}),
+        ...(dto.selectionExcludedReason === "duplicate_main" ? { duplicateMain: true as const } : {}),
       },
     };
   });
