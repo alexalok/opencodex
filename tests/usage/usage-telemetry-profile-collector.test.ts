@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { handleLeaderboard, handleProfileByHandle } from "../../services/telemetry-collector/src/leaderboard";
+import { handleGetOwnProfile } from "../../services/telemetry-collector/src/profiles";
 import { handleCollectorFetch } from "../../services/telemetry-collector/src/index";
 import { computeHourlyIpHash, formatBucketHour } from "../../services/telemetry-collector/src/ingest";
 import { pruneCollectorTables } from "../../services/telemetry-collector/src/prune";
@@ -30,6 +32,14 @@ function send(path: string, init: { method?: string; body?: unknown; secret?: st
     undefined,
     now,
   );
+}
+
+// Retain algorithm coverage independently of the held HTTP routes; never a production bypass.
+function readUnpublished(path: string, init: { secret?: string } = {}, now = NOW) {
+  const request = new Request(`${BASE}${path}`, { headers: { "cf-connecting-ip": "203.0.113.7", authorization: `Bearer ${init.secret ?? ""}` } });
+  if (path.startsWith("/v1/leaderboard")) return handleLeaderboard(request, h.env, now);
+  if (path.startsWith("/v1/profiles/by-handle/")) return handleProfileByHandle(request, h.env, path.split("/").at(-1)!, now);
+  return handleGetOwnProfile(request, h.env, now);
 }
 
 async function create(handle: string, ip = "203.0.113.7", now = CREATED): Promise<string> {
@@ -104,7 +114,7 @@ describe("telemetry collector: opt-in profiles", () => {
     expect(h.sqlite.query("SELECT family, requests, tokens FROM profile_day_families").all()).toEqual([{ family: "claude-opus", requests: 2, tokens: 10 }]);
   });
 
-  test("ranks use RANK() among non-hidden profiles with usage; ties share a rank; no usage ranks null", async () => {
+  test("unpublished ranks use RANK() among non-hidden profiles with usage; ties share a rank; no usage ranks null", async () => {
     const a = await create("alpha", "192.0.2.1");
     const b = await create("bravo", "192.0.2.2");
     const c = await create("charlie", "192.0.2.3");
@@ -113,32 +123,32 @@ describe("telemetry collector: opt-in profiles", () => {
     await submit(b, "2026-11-08", 9, 500);
     await submit(c, "2026-11-08", 1, 100);
     await submit(c, "2026-11-05", 1, 10_000);
-    const me = await send("/v1/profiles/me", { secret: c });
+    const me = await readUnpublished("/v1/profiles/me", { secret: c });
     expect(me.headers.get("cache-control")).toBe("no-store");
     const own = (await me.json()) as { periods: Record<string, { rank: number | null; of: number; tokens: number }>; hidden: boolean; families: unknown };
     expect(own.periods.day).toEqual({ rank: 3, of: 3, tokens: 100, requests: 1 });
     expect(own.periods.week).toEqual({ rank: 1, of: 3, tokens: 10_100, requests: 2 });
     expect(own.hidden).toBe(false);
     expect(own.families).toEqual([{ family: "claude-opus", requests: 2, tokens: 10_100 }]);
-    const tied = (await (await send("/v1/profiles/me", { secret: b })).json()) as { periods: Record<string, { rank: number }> };
+    const tied = (await (await readUnpublished("/v1/profiles/me", { secret: b })).json()) as { periods: Record<string, { rank: number }> };
     expect(tied.periods.day.rank).toBe(1);
     // The proxy's parser accepts exactly what the collector returns, and keeps only documented fields.
     const parsedOwn = parseProfileRankV1(own);
     expect(parsedOwn?.periods.week).toEqual({ rank: 1, of: 3, tokens: 10_100, requests: 2 });
     expect(parsedOwn).not.toHaveProperty("hidden");
-    const idleRank = (await (await send("/v1/profiles/me", { secret: idle })).json()) as { periods: Record<string, { rank: number | null; of: number }> };
+    const idleRank = (await (await readUnpublished("/v1/profiles/me", { secret: idle })).json()) as { periods: Record<string, { rank: number | null; of: number }> };
     expect(idleRank.periods.month).toEqual({ rank: null, of: 3, tokens: 0, requests: 0 });
 
-    const board = await send("/v1/leaderboard?period=day&metric=tokens");
+    const board = await readUnpublished("/v1/leaderboard?period=day&metric=tokens");
     expect(board.headers.get("x-robots-tag")).toBe("noindex");
     const parsed = (await board.json()) as { total: number; entries: Array<Record<string, unknown>> };
     expect(parsed.total).toBe(3);
     expect(parsed.entries.map(entry => [entry.rank, entry.handle])).toEqual([[1, "alpha"], [1, "bravo"], [3, "charlie"]]);
     for (const entry of parsed.entries) expect(Object.keys(entry).sort()).toEqual(["avatar", "displayName", "handle", "rank", "requests", "tokens"]);
-    const byRequests = (await (await send("/v1/leaderboard?period=day&metric=requests")).json()) as { entries: Array<{ handle: string }> };
+    const byRequests = (await (await readUnpublished("/v1/leaderboard?period=day&metric=requests")).json()) as { entries: Array<{ handle: string }> };
     expect(byRequests.entries.map(entry => entry.handle)).toEqual(["bravo", "alpha", "charlie"]);
-    expect((await send("/v1/leaderboard?period=year")).status).toBe(400);
-    expect((await send("/v1/leaderboard?limit=101")).status).toBe(400);
+    expect((await readUnpublished("/v1/leaderboard?period=year")).status).toBe(400);
+    expect((await readUnpublished("/v1/leaderboard?limit=101")).status).toBe(400);
   });
 
   test("hidden profiles leave every public read and every ranked set", async () => {
@@ -147,14 +157,14 @@ describe("telemetry collector: opt-in profiles", () => {
     await submit(a, "2026-11-08", 1, 50);
     await submit(b, "2026-11-08", 1, 10);
     h.sqlite.query("UPDATE profiles SET hidden = 1 WHERE handle = 'alpha'").run();
-    const board = (await (await send("/v1/leaderboard?period=day")).json()) as { total: number; entries: Array<{ handle: string; rank: number }> };
+    const board = (await (await readUnpublished("/v1/leaderboard?period=day")).json()) as { total: number; entries: Array<{ handle: string; rank: number }> };
     expect(board.entries).toEqual([expect.objectContaining({ handle: "bravo", rank: 1 })]);
     expect(board.total).toBe(1);
-    expect((await send("/v1/profiles/by-handle/alpha")).status).toBe(404);
-    const own = (await (await send("/v1/profiles/me", { secret: a })).json()) as { hidden: boolean; periods: Record<string, { rank: number | null }> };
+    expect((await readUnpublished("/v1/profiles/by-handle/alpha")).status).toBe(404);
+    const own = (await (await readUnpublished("/v1/profiles/me", { secret: a })).json()) as { hidden: boolean; periods: Record<string, { rank: number | null }> };
     expect(own.hidden).toBe(true);
     expect(own.periods.day.rank).toBeNull();
-    const pub = await send("/v1/profiles/by-handle/bravo");
+    const pub = await readUnpublished("/v1/profiles/by-handle/bravo");
     expect(pub.status).toBe(200);
     const pubBody = (await pub.json()) as Record<string, unknown>;
     expect(Object.keys(pubBody).sort()).toEqual(["families", "metric", "ok", "periods", "profile"]);
@@ -178,10 +188,10 @@ describe("telemetry collector: opt-in profiles", () => {
   test("hiding a profile takes effect on the very next leaderboard read", async () => {
     const a = await create("alpha", "192.0.2.1");
     await submit(a, "2026-11-08", 1, 50);
-    const first = (await (await send("/v1/leaderboard?period=day")).json()) as { total: number };
+    const first = (await (await readUnpublished("/v1/leaderboard?period=day")).json()) as { total: number };
     expect(first.total).toBe(1);
     h.sqlite.query("UPDATE profiles SET hidden = 1 WHERE handle = 'alpha'").run();
-    const res = await send("/v1/leaderboard?period=day");
+    const res = await readUnpublished("/v1/leaderboard?period=day");
     expect(((await res.json()) as { total: number }).total).toBe(0);
     expect(res.headers.get("cache-control")).toBe("public, max-age=60");
   });
@@ -190,10 +200,10 @@ describe("telemetry collector: opt-in profiles", () => {
     const secret = await create("alpha", "192.0.2.1", NOW - 6 * DAY_MS);
     await submit(secret, "2026-11-08", 1, 10);
     const lateNight = Date.parse("2026-11-09T23:59:00.000Z");
-    const before = (await (await send("/v1/leaderboard?period=day", {}, lateNight)).json()) as { to: string; total: number };
+    const before = (await (await readUnpublished("/v1/leaderboard?period=day", {}, lateNight)).json()) as { to: string; total: number };
     expect(before.to).toBe("2026-11-08");
     const afterMidnight = Date.parse("2026-11-10T00:01:00.000Z");
-    const after = (await (await send("/v1/leaderboard?period=day", {}, afterMidnight)).json()) as { to: string; total: number };
+    const after = (await (await readUnpublished("/v1/leaderboard?period=day", {}, afterMidnight)).json()) as { to: string; total: number };
     expect(after.to).toBe("2026-11-09");
     expect(after.total).toBe(0);
   });
@@ -221,3 +231,30 @@ describe("telemetry collector: opt-in profiles", () => {
   });
 });
 
+
+test("self-minted profile ownership cannot publish usage through any statistics or ranking route", async () => {
+  const secret = await create("fabricated");
+  expect((await submit(secret, "2026-11-08", 1, 10_000_000_000)).status).toBe(200);
+  const previousCaches = (globalThis as { caches?: unknown }).caches;
+  let reads = 0;
+  const blockedEnv = { ...h.env, DB: new Proxy(h.db, { get() { reads++; throw new Error("hold must precede D1"); } }) };
+  (globalThis as { caches?: unknown }).caches = { default: {
+    async match() { reads++; return new Response('{"entries":[{"handle":"fabricated","tokens":10000000000}]}'); },
+    async put() { reads++; },
+  } };
+  try {
+    for (const path of ["/v1/stats?range=7d", "/v1/leaderboard?period=day&metric=tokens", "/v1/leaderboard/?period=month&metric=requests", "/v1/profiles/by-handle/fabricated", "/v1/profiles/by-handle/fabricated/", "/v1/profiles/me?metric=tokens", "/v1/profiles/me/?metric=requests"]) {
+      for (const bearer of ["", "forged", secret]) {
+        const response = await handleCollectorFetch(new Request(`${BASE}${path}`, {
+          headers: { authorization: `Bearer ${bearer}`, origin: "https://opencodex.me" },
+        }), blockedEnv, undefined, NOW);
+        expect(response.status, `${path} ${bearer ? "with bearer" : "anonymous"}`).toBe(503);
+        expect(response.headers.get("cache-control")).toBe("no-store");
+        expect(response.headers.get("x-robots-tag")).toBe("noindex");
+        expect(await response.json()).toEqual({ ok: false, error: "usage statistics unavailable until report provenance is verified" });
+      }
+    }
+    expect(reads).toBe(0);
+  } finally { (globalThis as { caches?: unknown }).caches = previousCaches; }
+  expect((await send("/v1/profiles/me", { method: "DELETE", secret })).status).toBe(200);
+});

@@ -1,10 +1,8 @@
 import { handleIngest } from "./ingest";
-import { handleLeaderboard, handleProfileByHandle } from "./leaderboard";
 import { profileError } from "./profile-http";
 import {
   handleCreateProfile,
   handleDeleteOwnProfile,
-  handleGetOwnProfile,
   handleSubmitProfileDay,
 } from "./profiles";
 import { pruneCollectorTables } from "./prune";
@@ -58,6 +56,14 @@ function jsonError(status: number, error: string, extraHeaders?: Record<string, 
   });
 }
 
+/** No remotely supplied profile secret or install hash proves usage provenance. */
+function usagePublicationHold(): Response {
+  return jsonError(503, "usage statistics unavailable until report provenance is verified", {
+    "cache-control": "no-store",
+    "x-robots-tag": "noindex",
+  });
+}
+
 /**
  * Opt-in profile routes. Write and bearer routes get no CORS preflight, so a browser page cannot
  * send the profile secret cross-origin; only the public reads are preflighted.
@@ -73,13 +79,13 @@ async function handleProfileRoutes(
   if (pathname === "/v1/leaderboard") {
     if (method === "OPTIONS") return handlePreflight(request, "GET, OPTIONS");
     if (method !== "GET") return withCors(request, methodNotAllowed("GET, OPTIONS"));
-    return withCors(request, await handleLeaderboard(request, env, now));
+    return withCors(request, usagePublicationHold());
   }
   const byHandle = /^\/v1\/profiles\/by-handle\/([^/]+)$/.exec(pathname);
   if (byHandle) {
     if (method === "OPTIONS") return handlePreflight(request, "GET, OPTIONS");
     if (method !== "GET") return withCors(request, methodNotAllowed("GET, OPTIONS"));
-    return withCors(request, await handleProfileByHandle(request, env, byHandle[1]!, now));
+    return withCors(request, usagePublicationHold());
   }
   if (pathname === "/v1/profiles") {
     if (method !== "POST") return methodNotAllowed("POST");
@@ -90,7 +96,8 @@ async function handleProfileRoutes(
     return handleSubmitProfileDay(request, env, now);
   }
   if (pathname === "/v1/profiles/me") {
-    if (method === "GET") return handleGetOwnProfile(request, env, now);
+    // This response includes cross-profile ranks, not just private account metadata.
+    if (method === "GET") return usagePublicationHold();
     if (method === "DELETE") return handleDeleteOwnProfile(request, env, now);
     return methodNotAllowed("GET, DELETE");
   }
@@ -134,9 +141,7 @@ export async function handleCollectorFetch(
       // Anonymous installDayHash values are client-mintable, not authenticated identities.
       // Withhold all existing and new aggregates, before either cache is consulted, until
       // a reviewed identity/provenance scheme can exclude untrusted reports from cohorts.
-      return withCors(request, jsonError(503, "statistics unavailable until report identities are verified", {
-        "cache-control": "no-store",
-      }));
+      return withCors(request, usagePublicationHold());
     }
 
     if (pathname === "/v1/leaderboard" || pathname.startsWith("/v1/profiles")) {

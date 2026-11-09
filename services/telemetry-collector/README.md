@@ -23,15 +23,14 @@ anonymous ones: no install hash, version or platform is stored, and rate-limit k
 - `POST /v1/profiles/me/days` (bearer) — one completed UTC day within the last 7, strictly after the creation day,
   with consistent totals and closed model families (8 KiB), 48 per profile per hour. The first submission for a day
   wins (`{deduplicated}`).
-- `GET /v1/profiles/me` (bearer) — ranks for day, week and month, month family totals and the `hidden` flag; `no-store`.
+- `GET /v1/profiles/me` — held at `503`/`no-store`/`noindex`, even with a valid bearer. This response includes cross-profile ranks, not just private account data; a self-minted profile secret proves ownership, not usage provenance.
 - `DELETE /v1/profiles/me` (bearer) — deletes the profile and every row submitted for it in one batch; an unknown
   secret is `401`.
 - `GET /v1/leaderboard?period=day|week|month&metric=tokens|requests&limit=1..100` and
-  `GET /v1/profiles/by-handle/<handle>` — public, 3000 per client key per hour, `cache-control: public, max-age=60` (no
-  in-process cache, so a hidden profile disappears on the next read at the Worker and within 60 seconds in shared caches),
-  `x-robots-tag: noindex`. Entries carry only rank, handle, display name, avatar, tokens and requests. Ranking is
-  `RANK()` over profiles with a positive total in the window ending on the latest completed UTC day; hidden profiles
-  are excluded everywhere.
+  `GET /v1/profiles/by-handle/<handle>` — held at `503`/`no-store`/`noindex` before DB or cache access,
+  including historical rankings and individual usage. The same hold covers `/v1/stats` and own-profile
+  GET; no caller-supplied token enables publication. Internal ranking algorithms remain testable but
+  are not routed. Re-enabling any usage read requires reviewed non-mintable usage provenance.
 - Bearer and write routes are never CORS-preflighted, so a browser page cannot send a profile secret cross-origin.
 - Pruning: profile rate-limit buckets after 2 hours, day rows after 400 days, profiles that never submitted after 14
   days, and profiles whose last submission is older than 400 days together with their rows.
