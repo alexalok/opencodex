@@ -1605,7 +1605,9 @@ jobs:
             echo '::error::Existing release tag points at a different source.'; exit 1
           fi
           if [ "$RESUME" = true ] && [ -n "$existing_tag_sha" ]; then allow="--allow-existing-tag-at-head"; fi
-          git tag --list 'v*' | bun scripts/version-line.ts assert-releasable "$RELEASE_VERSION" ${allow:+"$allow"}
+          fork_scope=""
+          if [ "${GITHUB_REPOSITORY:-}" = alexalok/opencodex ]; then fork_scope="--merged=$SOURCE_SHA"; fi
+          git tag ${fork_scope:+"$fork_scope"} --list 'v*' | bun scripts/version-line.ts assert-releasable "$RELEASE_VERSION" ${allow:+"$allow"}
 
       - name: Build and validate release changelog
         env:

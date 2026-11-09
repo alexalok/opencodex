@@ -465,3 +465,36 @@ describe.skipIf(process.platform === "win32")("scripts/ci/release-preflight.sh, 
     expect(result.output).toContain("found 2 blocking problem(s)");
   }, SPAWN_BUDGET_MS);
 });
+
+
+test.skipIf(process.platform === "win32")("final ordering preserves fork ancestry scope and global duplicate checks", () => {
+  const root = mkdtempSync(join(tmpdir(), "ocx-final-ordering-"));
+  const env = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: root, GIT_CONFIG_NOSYSTEM: "1",
+    GIT_AUTHOR_NAME: "fixture", GIT_AUTHOR_EMAIL: "fixture@example.test", GIT_COMMITTER_NAME: "fixture", GIT_COMMITTER_EMAIL: "fixture@example.test" };
+  try {
+    mkdirSync(join(root, "scripts"));
+    copyFileSync(repoPath("scripts/version-line.ts"), join(root, "scripts/version-line.ts"));
+    run(root, env, "git", "init", "-q", "-b", "release");
+    run(root, env, "git", "commit", "-q", "--allow-empty", "-m", "source");
+    const source = run(root, env, "git", "rev-parse", "HEAD");
+    run(root, env, "git", "tag", "v2.90.0");
+    run(root, env, "git", "commit", "-q", "--allow-empty", "-m", "unrelated newer release");
+    run(root, env, "git", "tag", "v2.91.0-preview.20261109.1");
+    const script = release.jobs?.publish?.steps?.find(step => step.name === "Refuse a release the current tag set already outranks")?.run;
+    expect(script).toBeDefined();
+    const execute = (repository = "alexalok/opencodex") => Bun.spawnSync(["bash", "-e", "-c",
+      'git() { if [ "$1" = fetch ]; then return 0; else command git "$@"; fi; }\n' + script], {
+      cwd: root, env: { ...env, GITHUB_REPOSITORY: repository, SOURCE_SHA: source, RELEASE_VERSION: "2.90.1", RESUME: "false" }, stdout: "pipe", stderr: "pipe",
+    });
+    expect(execute().exitCode).toBe(0);
+    expect(execute("lidge-jun/opencodex").exitCode).not.toBe(0);
+    run(root, env, "git", "tag", "v2.90.1");
+    expect(execute().exitCode).not.toBe(0); // Duplicate outside source ancestry still rejects.
+    run(root, env, "git", "tag", "-d", "v2.90.1");
+    run(root, env, "git", "tag", "v2.90.1", source);
+    expect(execute().exitCode).not.toBe(0); // Existing source tag is not a fresh publication.
+    run(root, env, "git", "tag", "-d", "v2.90.1");
+    run(root, env, "git", "tag", "v2.92.0", source);
+    expect(execute().exitCode).not.toBe(0); // Newer ancestor remains an ordering blocker.
+  } finally { removeTreeWithRetry(root); }
+});
