@@ -36,8 +36,8 @@ when a maintainer steps down.
 
 ## Review and merge policy
 
-- Pull requests target `dev`. It is the only integration line, and promotion to
-  `main` happens only from `dev`. The target-branch check accepts `dev` alone.
+- Pull requests target `dev`, the only development and integration line. The
+  target-branch check accepts `dev` alone.
 - The **`enforce-target`** CI check rejects pull requests whose head
   ancestry sits on the **`main`** tip while far behind **`dev`**, and rejects
   empty, thin, or malformed descriptions; PRs that change files under `gui/`
@@ -78,8 +78,8 @@ when a maintainer steps down.
   contracts in ways an import graph cannot see (subprocesses, files read as data, generated
   output). Merge green pull requests one at a time; after roughly every five merges, run
   `gh workflow run ci.yml --ref dev` (the default `lane=all`). If that run is red, stop merging,
-  fix `dev` from the batch it covers, and resume once it is green. Always run it before a
-  promotion to `main`.
+  fix `dev` from the batch it covers, and resume once it is green. A complete successful
+  dispatch is also the cross-platform evidence for the exact commit it tests.
 - A current maintainer with GitHub `maintain` or `admin` access may explicitly integrate a pull
   request into `dev` without another maintainer's approval, including their own pull request.
   Record that choice and the exact-head verification in the pull-request description or comment.
@@ -105,29 +105,18 @@ when a maintainer steps down.
 - Integration uses pull requests, including urgent maintainer repairs. The PR-only ruleset
   bypass does not authorize direct pushes; incident changes to branch protection require a
   separate owner decision.
-- Promotion from `dev` to `main` and npm releases is maintainer-controlled.
-- **Opening a release starts by moving `dev`'s version line forward.** Before cutting
-  a release, `dev` must already outrank the version being released; `release.yml`
-  asserts this and refuses to publish otherwise. Dispatch
-  `.github/workflows/dev-version-bump.yml` with the intended version, merge the pull
-  request it opens, then promote and release. When `dev` already outranks the target
-  — a preview cut, or a stable hotfix below `dev`'s line — no move is needed and the
-  workflow reports `changed=false`.
-
-  Opening a preview for the next core ends the current patch line. After
-  `vX.Y.0-preview.*` is tagged, a fix ships as part of `X.Y.0`, not as
-  `X.(Y-1).(Z+1)`. The release helper refuses such a bump rather than producing a
-  version the repository would reject. This is a deliberate policy restriction, not
-  a claim that lower stable patches were historically unused.
-
-  Done after the publish, as this repository did for ten releases (`32529c2b2`,
-  `e4a85d134`, `076ad3036`, `befcac3e1`, then #3045, #3076, #3127, #3265, #3354,
-  #3434), it leaves `dev` and every open pull request carrying a failure contributors
-  cannot fix from their own diff. The pull request itself does not go away — `Protect
-  dev` requires a reviewed merge. If the pre-move is missed and publication somehow
-  succeeds, dispatch `dev-version-bump.yml` from the default branch with the released
-  version and `mode=repair`, then merge the repair pull request. Design:
-  `devlog/_plan/260904_release_version_line/`.
+- npm releases are maintainer-controlled. Preview and stable releases use an eligible
+  `dev` commit with successful full manual cross-platform CI; the workflow stamps the
+  release version into build checkouts instead of committing a pre-release version bump
+  or promoting a branch. Releases share one concurrency group and preserve the global
+  version ordering. `main` and `preview` remain protected historical branches during
+  migration, not release targets.
+- Publication remains disabled until the coordinator completes the cutover checks,
+  including the reviewed legacy lineage baseline, npm trusted-publisher configuration,
+  default branch and rulesets, Pages settings, and a hosted dry-run. The variable
+  `OCX_DEV_RELEASE_PUBLISH_ENABLED` must equal `true` for a real publication; missing
+  or other values keep the hold in place. A hosted release dry-run uses the trusted
+  `dev` workflow and does not publish.
 
 ## The retired `dev2-go` line
 
@@ -232,3 +221,34 @@ Adding or removing a maintainer requires:
 
 Private vulnerability reports are handled by the current maintainers according to
 [`SECURITY.md`](./SECURITY.md). Do not disclose secrets or exploit details in a public issue.
+
+## Fork release source and external review
+
+For `alexalok/opencodex`, dispatch the trusted `dev` revision of `release.yml`
+with an explicit `release-branch`, exact `expected-sha`, and `version`. This
+supersedes dispatching the workflow itself from a release branch. The source
+must be the exact current tip of `releases/vX.Y.Z` and a merged PR commit on
+that branch. Runtime source never comes from current `dev`. Version mirrors
+remain committed on the release branch and each backport increases its patch;
+the workflow must not derive a newer upstream base or silently change that version.
+
+Select the highest published stable upstream base available for at least 168
+hours, using the later GitHub/npm publication time. The guard verifies the
+selected base's age, upstream-tag ancestry, and stable patch line. The operator
+must record highest-eligible-base selection and individually justified backports.
+Fork ordering considers only release-source ancestors, while duplicate versions
+and moving npm `latest` backwards remain forbidden. The shared
+`@bitkyc08/opencodex` namespace may therefore block an otherwise age-eligible
+fork release; that refusal is not permission to change namespace or publication policy.
+
+Backport the reviewed CI tooling when necessary and run manual `ci.yml` with
+`lane=all` from the exact merged release source. Evidence must match reviewed
+policy fingerprints. Service evidence is manually dispatched from trusted `dev`
+with the same source SHA and `release-branch`. Hosted macOS stays excluded from
+automatic runs; release qualification requires the complete manual evidence.
+
+Security review is performed externally through Codex Security Cloud. Record
+review reference and reviewed SHA before merge, resolve applicable findings, and
+do not substitute local tests or agent review. Publication hold remains unchanged.
+Fork resume is refused until a separately reviewed fork receipt/provenance policy
+is available; never retry an acknowledged npm publication as a fresh release.

@@ -201,6 +201,7 @@ import {
   expandFastRow,
 } from "../fast-row";
 import type { OcxConfig } from "../../types";
+import { classifyUsageClient } from "../../usage/client";
 import type { PackageTreeIntegrityGuard } from "../../lib/package-tree-integrity";
 import type { ReadinessGate } from "../readiness";
 import type { WorkflowRefusalLog } from "../workflow-refusal";
@@ -642,6 +643,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
             admission,
             websocketLease,
             sessionLaneIdFromRequest(req.headers),
+            classifyUsageClient(req.headers),
           ),
         })) return undefined as unknown as Response;
         websocketLease.release();
@@ -1342,7 +1344,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
         const logCtx: RequestLogContext = {
           model: "unknown",
           provider: "unknown",
-          ...requestMetricsLogContext,
+          ...requestMetricsLogContext, client: classifyUsageClient(req.headers),
           ...admissionFields(admission),
           inboundProtocol: "responses",
         };
@@ -1382,7 +1384,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
         const logCtx: RequestLogContext = {
           model: "image_gen",
           provider: "unknown",
-          ...requestMetricsLogContext,
+          ...requestMetricsLogContext, client: classifyUsageClient(req.headers),
           ...admissionFields(admission),
         };
         const endpoint = url.pathname.endsWith("/edits") ? "edits" as const : "generations" as const;
@@ -1440,7 +1442,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
         const logCtx: RequestLogContext = {
           model: "context_history",
           provider: "unknown",
-          ...requestMetricsLogContext,
+          ...requestMetricsLogContext, client: classifyUsageClient(req.headers),
           ...admissionFields(admission),
         };
         return runAdmittedHttpTurn(req, policy, async turnAdmissionLease => {
@@ -1467,7 +1469,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
         const logCtx: RequestLogContext = {
           model: "web_search",
           provider: "unknown",
-          ...requestMetricsLogContext,
+          ...requestMetricsLogContext, client: classifyUsageClient(req.headers),
           ...admissionFields(admission),
         };
         return runAdmittedHttpTurn(req, policy, async turnAdmissionLease => {
@@ -1492,7 +1494,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
         const logCtx: RequestLogContext = {
           model: "unknown",
           provider: "unknown",
-          ...requestMetricsLogContext,
+          ...requestMetricsLogContext, client: classifyUsageClient(req.headers),
           ...admissionFields(admission),
           inboundProtocol: "responses",
         };
@@ -1587,7 +1589,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
         const logCtx: RequestLogContext = {
           model: "unknown",
           provider: "unknown",
-          ...requestMetricsLogContext,
+          ...requestMetricsLogContext, client: classifyUsageClient(req.headers),
           ...admissionFields(admission),
           inboundProtocol: "messages",
         };
@@ -1625,7 +1627,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
         const logCtx: RequestLogContext = {
           model: "unknown",
           provider: "unknown",
-          ...requestMetricsLogContext,
+          ...requestMetricsLogContext, client: classifyUsageClient(req.headers),
           ...admissionFields(admission),
           inboundProtocol: "chat",
         };
@@ -1663,7 +1665,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
         const logCtx: RequestLogContext = {
           model: TRANSCRIPTION_MODEL,
           provider: "unknown",
-          ...requestMetricsLogContext,
+          ...requestMetricsLogContext, client: classifyUsageClient(req.headers),
           ...admissionFields(admission),
         };
         return runAdmittedHttpTurn(req, policy, async lease => {
@@ -1696,7 +1698,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
         const logCtx: RequestLogContext = {
           model: "gpt-live",
           provider: "unknown",
-          ...requestMetricsLogContext,
+          ...requestMetricsLogContext, client: classifyUsageClient(req.headers),
           ...admissionFields(admission),
         };
         return runAdmittedHttpTurn(req, policy, async turnAdmissionLease => {
@@ -1744,7 +1746,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
         const logCtx: RequestLogContext = {
           model: "gpt-live",
           provider: "unknown",
-          ...requestMetricsLogContext,
+          ...requestMetricsLogContext, client: classifyUsageClient(req.headers),
           ...admissionFields(admission),
         };
         let liveRequestFinalized = false;

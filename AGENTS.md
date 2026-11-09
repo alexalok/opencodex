@@ -158,10 +158,10 @@ different pointer, so every branch move and promotion dragged a diff.
   Reference *clones* are gitignored: they are third-party source carrying their
   own licenses and have no business in this repository's history.
 
-Nothing in the build, typecheck, or test path reads from `devlog/`, so a
-contributor who ignores it entirely still passes every gate. `privacy:scan` does
-read it — that is deliberate, and it is what makes a public devlog safe rather
-than merely visible.
+Build and typecheck do not read `devlog/`. The test-layout membership oracle reads
+`devlog/_fin/260905_test_modularization_and_windows/001_test_inventory.md`; sparse
+checkouts running that test must materialize this tracked input. `privacy:scan`
+also reads `devlog/` to keep public development notes safe to publish.
 
 Two mechanical guards in `tests/ci-workflows/repo-hygiene.test.ts` back this up: no `160000`
 gitlink may be tracked anywhere, and neither the vendored reference clones nor
@@ -397,7 +397,9 @@ than nudged.
   those folders. When the PR resolves an issue, add
   `Closes #<number>` to link it. GitHub auto-closes the linked issue only
   when the PR merges into the default branch (`main`); PRs here target
-  `dev`, so close the issue manually once the change is on `dev`.
+  `dev`, so close the issue manually once the change is on `dev` while `main`
+  remains the default branch. After the maintainer switches the default to `dev`,
+  GitHub can close it automatically when the linked pull request merges.
 - **Landing another author's work:** reimplementing, superseding, carrying, or
   rebasing someone else's pull request requires a `Co-authored-by` trailer
   naming that author, in the description or in a branch commit so it survives
@@ -419,7 +421,8 @@ than nudged.
   (`MAINTAINERS.md`, "Batched merges"). Because `test changed` follows the module graph,
   add `ci:full` for changes it cannot see (subprocesses, files read as data, generated output).
 - Full cross-platform (macOS/Windows) CI runs **only** via manual
-  `workflow_dispatch` and on push to `main`/`preview` (release lines).
+  `workflow_dispatch` on `dev`. A successful complete `lane=all` run establishes
+  evidence for its exact dev commit; a PR run or narrower manual lane does not.
 - A manual `lane=all` dispatch is a **batch check on `dev`**, never a per-PR gate.
   One run is about 32 jobs (11 Windows, at least 6 macOS, 15 Linux) and six runner-hours, and the
   account has only five macOS slots (a macOS job can queue), so per-PR dispatches starve
@@ -428,10 +431,9 @@ than nudged.
   - Merge a pull request, including a Windows- or macOS-sensitive one, on its green PR
     CI. After a batch of merges, run one `gh workflow run ci.yml --ref dev` as described
     under "Batched merges". If it is red, stop merging and fix `dev` from that batch.
-  - Do not dispatch `lane=all` for a PR branch unless a maintainer explicitly asks for it
-    on that PR. Even then, run it once, on the exact head about to merge. Never re-dispatch
-    because the head moved (an `origin/dev` merge or a review fix), and never rerun to
-    green. Cancel your own superseded dispatches with `gh run cancel`.
+  - Do not dispatch `lane=all` for a PR branch. Run it once for a batch on `dev`;
+    never re-dispatch merely because the head moved or rerun to green. Cancel your
+    own superseded dispatches with `gh run cancel`.
   - Every description edit or label change starts three event-gate workflows. Batch those
     edits, and keep the number of agents working pull requests in parallel small.
 - **Never** add a `dev` push trigger, or `pull_request` runs for macOS/Windows
@@ -439,13 +441,14 @@ than nudged.
 
 ## Branch policy
 
-The following describes **upstream**. For `alexalok/opencodex`, use the fork
-workflow above, including its prohibition on `main` and its backport PR targets.
+The following describes upstream; fork source selection rules above take precedence.
 
-- `dev` — the single integration branch and the target for every pull request.
-- `main` — release branch. It only moves by maintainer-controlled promotion
-  from `dev` (releases, docs deploys). Do not open feature PRs against `main`.
-- `preview` — prerelease train (`x.y.z-preview.*` versions).
+- `dev` — the single development and integration branch and the target for every
+  ordinary pull request. Preview and stable releases are built from eligible
+  commits on this line, with versions stamped in build checkouts.
+- `main` and `preview` — protected historical branches retained for migration and
+  recovery. They are not integration or release promotion targets. Switching the
+  repository default branch to `dev` is a separate maintainer-controlled setting.
 
 Bun-native TypeScript on `dev` is the only runtime line. If native code
 returns, the expectation is an incremental module (for example Rust via N-API)
@@ -529,3 +532,34 @@ reviewers (Codex, CodeRabbit).
   keep translated locales from contradicting the English source).
 - **Privacy:** `bun run privacy:scan` must stay green; never introduce logging
   of request bodies, API keys, or account identifiers.
+
+## Fork release source and external review
+
+For `alexalok/opencodex`, dispatch the trusted `dev` revision of `release.yml`
+with an explicit `release-branch`, exact `expected-sha`, and `version`. This
+supersedes dispatching the workflow itself from a release branch. The source
+must be the exact current tip of `releases/vX.Y.Z` and a merged PR commit on
+that branch. Runtime source never comes from current `dev`. Version mirrors
+remain committed on the release branch and each backport increases its patch;
+the workflow must not derive a newer upstream base or silently change that version.
+
+Select the highest published stable upstream base available for at least 168
+hours, using the later GitHub/npm publication time. The guard verifies the
+selected base's age, upstream-tag ancestry, and stable patch line. The operator
+must record highest-eligible-base selection and individually justified backports.
+Fork ordering considers only release-source ancestors, while duplicate versions
+and moving npm `latest` backwards remain forbidden. The shared
+`@bitkyc08/opencodex` namespace may therefore block an otherwise age-eligible
+fork release; that refusal is not permission to change namespace or publication policy.
+
+Backport the reviewed CI tooling when necessary and run manual `ci.yml` with
+`lane=all` from the exact merged release source. Evidence must match reviewed
+policy fingerprints. Service evidence is manually dispatched from trusted `dev`
+with the same source SHA and `release-branch`. Hosted macOS stays excluded from
+automatic runs; release qualification requires the complete manual evidence.
+
+Security review is performed externally through Codex Security Cloud. Record
+review reference and reviewed SHA before merge, resolve applicable findings, and
+do not substitute local tests or agent review. Publication hold remains unchanged.
+Fork resume is refused until a separately reviewed fork receipt/provenance policy
+is available; never retry an acknowledged npm publication as a fresh release.
