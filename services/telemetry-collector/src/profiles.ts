@@ -95,7 +95,8 @@ export async function handleSubmitProfileDay(request: Request, env: CollectorEnv
   const day = validated.value;
   if (day.day <= profile.created_day) return profileError(400, "days on or before the profile's creation day are not accepted");
   const tokens = day.tokens.input + day.tokens.cacheRead + day.tokens.cacheWrite + day.tokens.output + day.tokens.reasoning;
-  const notYet = "WHERE NOT EXISTS (SELECT 1 FROM profile_days WHERE profile_id = ?1 AND day = ?2)";
+  // Recheck existence inside the atomic write: authentication can precede deletion.
+  const notYet = "WHERE EXISTS (SELECT 1 FROM profiles WHERE id = ?1) AND NOT EXISTS (SELECT 1 FROM profile_days WHERE profile_id = ?1 AND day = ?2)";
   const statements = day.families.map(row =>
     env.DB
       .prepare(`INSERT INTO profile_day_families (profile_id, day, family, requests, tokens) SELECT ?1, ?2, ?3, ?4, ?5 ${notYet}`)
@@ -108,7 +109,7 @@ export async function handleSubmitProfileDay(request: Request, env: CollectorEnv
     env.DB
       .prepare(
         "INSERT OR IGNORE INTO profile_days (profile_id, day, requests, input, cache_read, cache_write, output, reasoning, tokens) " +
-        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        "SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9 WHERE EXISTS (SELECT 1 FROM profiles WHERE id = ?1)",
       )
       .bind(profile.id, day.day, day.requests, day.tokens.input, day.tokens.cacheRead, day.tokens.cacheWrite, day.tokens.output, day.tokens.reasoning, tokens),
   );
