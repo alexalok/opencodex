@@ -27,6 +27,7 @@ import type { ProviderQuota, ProviderQuotaWindow } from "../providers/quota-type
 import type { StoredAccountQuota } from "../codex/quota-types";
 import { isTerminalShortWindow, resetAtToMs } from "../codex/quota-types";
 import { runPassiveRead } from "../lib/passive-read";
+import { emailMaskingEnabled, projectEmail } from "../lib/privacy";
 import { packageVersion } from "../lib/package-version";
 import { listCodexAuthAccountsSnapshot } from "../codex/auth-api";
 import { latestCodexQuotaObservationSource } from "../codex/quota";
@@ -266,7 +267,7 @@ function codexAccounts(identity: QuotaPoolIdentity, accounts: Awaited<ReturnType
  * Per-account OAuth providers have no calibrated plan-to-capacity table (the Codex weights describe
  * Codex plans only), so each routable account counts once.
  */
-function oauthAccounts(identity: QuotaPoolIdentity, provider: string, now: number): TrackedAccount[] {
+function oauthAccounts(identity: QuotaPoolIdentity, provider: string, now: number, maskEmails: boolean): TrackedAccount[] {
   const set = getAccountSet(provider);
   if (!set) return [];
   return set.accounts.map(row => {
@@ -282,13 +283,15 @@ function oauthAccounts(identity: QuotaPoolIdentity, provider: string, now: numbe
     };
     const failure = entry?.quotaFailure && entry.quotaFailureIsCurrent?.() === true ? parseQuotaFailureCode(entry.quotaFailure) : undefined;
     if (failure) account.failure = failure;
+    // Same projection the OAuth account routes apply; Codex rows arrive already projected.
+    const email = projectEmail(typeof row.credential.email === "string" ? row.credential.email.trim() : null, maskEmails);
     return {
       account,
       pool: { eligible: row.paused !== true && row.needsReauth !== true, weight: 1, windows },
       meta: {
         accountId: row.id,
         ...(typeof row.alias === "string" && row.alias.trim() ? { alias: row.alias.trim() } : {}),
-        ...(typeof row.credential.email === "string" && row.credential.email.trim() ? { email: row.credential.email.trim() } : {}),
+        ...(email ? { email } : {}),
       },
     };
   });
@@ -343,6 +346,7 @@ export async function collectQuotaPoolProviders(config: OcxConfig, identity: Quo
   const reports = new Map(heldProviderQuotaReports(names).reports.map(report => [report.provider, report]));
   const codexPool = hasCodexPoolProvider(config);
   const codex = codexPool ? (await listCodexAuthAccountsSnapshot(config)).accounts : [];
+  const maskEmails = emailMaskingEnabled(config);
   const providers: CollectedQuotaProvider[] = [];
   for (const name of names) {
     const provider = config.providers[name]!;
@@ -360,7 +364,7 @@ export async function collectQuotaPoolProviders(config: OcxConfig, identity: Quo
       rows = claudeCliAccounts(identity, name, deps, now);
     } else if (supportsPerAccountQuota(name) || hasPassiveAccountQuota(name)) {
       tracked = true;
-      rows = oauthAccounts(identity, name, now);
+      rows = oauthAccounts(identity, name, now, maskEmails);
       poolFromRows = provider.authMode === "oauth";
     }
     const report = reports.get(name);

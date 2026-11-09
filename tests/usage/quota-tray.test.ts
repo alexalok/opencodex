@@ -142,9 +142,10 @@ describe("ocx.quota-tray/1", () => {
           // The account without a reading is unknown there, so it neither counts nor recovers.
           weekly: { remainingPercent: 58, resetsAt: NOW + 48 * HOUR, nextRecoveryAt: NOW + 48 * HOUR, nextRecoveryPercent: 42 },
           resetCredits: 0,
+          // OAuth emails follow privacy.maskEmails, which masks unless it is literally false.
           accounts: [
-            { name: "xai-a@example.test", units: 1, state: "available", weekly: { remainingPercent: 58, resetsAt: NOW + 48 * HOUR } },
-            { name: "xai-b@example.test", units: 1, state: "unknown" },
+            { name: "x***a@example.test", units: 1, state: "available", weekly: { remainingPercent: 58, resetsAt: NOW + 48 * HOUR } },
+            { name: "x***b@example.test", units: 1, state: "unknown" },
           ],
         },
         {
@@ -156,6 +157,11 @@ describe("ocx.quota-tray/1", () => {
         },
       ],
     });
+
+    const unmasked = await readQuotaTray({ ...config, privacy: { maskEmails: false } } as OcxConfig, { now: () => NOW, claudeUsageStatePath: admissionPath });
+    if (!unmasked.ok) throw new Error(unmasked.error);
+    expect(unmasked.tray.providers.find(provider => provider.provider === "xai")!.accounts.map(account => account.name))
+      .toEqual(["xai-a@example.test", "xai-b@example.test"]);
   });
 
   test("Codex rows carry plan units and reset credits; the expiry is inspected once, after the answer", async () => {
