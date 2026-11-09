@@ -483,11 +483,16 @@ describe.skipIf(!posix)("Codex CLI private-prefix POSIX apply", () => {
       const configDir = join(f.home, "ocx");
       const restartPlanId = "b".repeat(32);
       const oldOwner = await admitCodexCliUpdateJob({ requestId: "server-restart-owner-unknown-01", planId: restartPlanId, confirmed: true, configDir });
+      let signalOldOwnerStarted!: () => void;
+      const oldOwnerStarted = new Promise<void>(resolve => { signalOldOwnerStarted = resolve; });
       oldOwnerWork = runCodexCliUpdateJob(oldOwner.job.jobId, oldOwner.generation, () => new Promise(resolve => {
+        signalOldOwnerStarted();
         finishOldOwner = () => resolve({ outcome: "applied", reason: "verified_target", planId: restartPlanId,
           installedVersion: "1.0.0", targetVersion: "1.1.0", installerExitCode: 0, leaseRetained: false,
           verificationPid: null, cleanupErrors: [] });
       }), configDir);
+      // The callback starts only after the running record is persisted and its lock released.
+      await Promise.race([oldOwnerStarted, oldOwnerWork.then(() => { throw new Error("old owner failed to start"); })]);
       const oldOwnerStatus = await fetch(`${base}/api/codex/cli-update/jobs/${oldOwner.job.jobId}`, { headers: fixtureSessionHeaders(session) });
       const oldOwnerDto = await oldOwnerStatus.json() as Record<string, unknown>;
       if (!oldOwnerStatus.ok || oldOwnerDto.ownerState !== "unknown" || oldOwnerDto.status !== "ambiguous"
