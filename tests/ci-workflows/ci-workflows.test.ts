@@ -806,7 +806,13 @@ describe("GitHub Actions hardening", () => {
     const publishBoundaryIndex = workflow.indexOf("- name: Publish verified npm tarball");
     expect(orderingGateIndex).toBeGreaterThan(-1);
     expect(publishBoundaryIndex).toBeGreaterThan(orderingGateIndex);
-    expect(workflow).toContain('git tag --list \'v*\' | bun scripts/version-line.ts assert-releasable "$RELEASE_VERSION"');
+    const orderingGate = workflow.slice(orderingGateIndex).split("\n      - name:")[0]!;
+    expect(orderingGate).toContain('fork_scope=""');
+    expect(orderingGate).toContain('if [ "${GITHUB_REPOSITORY:-}" = alexalok/opencodex ]; then fork_scope="--merged=$SOURCE_SHA"; fi');
+    expect(orderingGate).toContain('git tag ${fork_scope:+"$fork_scope"} --list \'v*\' | bun scripts/version-line.ts assert-releasable "$RELEASE_VERSION"');
+    expect(orderingGate).toContain('refs/tags/v${RELEASE_VERSION}^{commit}');
+    expect(orderingGate).toContain('[ "$existing_tag_sha" != "$SOURCE_SHA" ]');
+    expect(orderingGate.indexOf('refs/tags/v${RELEASE_VERSION}^{commit}')).toBeLessThan(orderingGate.indexOf('fork_scope=""'));
 
     // Release notes are built and coverage-validated before npm publish. The
     // builder owns Git-history/PR coverage; the workflow only wires the validated
