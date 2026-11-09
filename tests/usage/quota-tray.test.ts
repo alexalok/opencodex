@@ -11,7 +11,8 @@ import { join } from "node:path";
 import type { OcxConfig } from "../../src/types";
 import type { StoredAccountQuota } from "../../src/codex/quota-types";
 import { codexQuotaWindows } from "../../src/quota-pool/assemble";
-import { pooledRecovery, type PooledAccountInput } from "../../src/quota-pool/pooled";
+import { pooledBlockHolder, pooledRecovery, pooledWindows, type PooledAccountInput } from "../../src/quota-pool/pooled";
+import type { QuotaPoolWindow } from "../../src/quota-pool/contract";
 import { readQuotaTray, resetQuotaTrayStateForTests, RESET_CREDIT_INSPECT_RETRY_MS } from "../../src/quota-pool/tray";
 import { RESET_CREDIT_EXPIRY_MEMO_TTL_MS } from "../../src/codex/reset-credit-expiry-memo";
 import { aggregateCodexPoolCapacity, codexCapacityWeight } from "../../src/providers/codex-capacity";
@@ -264,5 +265,34 @@ describe("reset-credit expiry memo", () => {
     noteResetCreditInspect("tray-memo-pool", credits(NOW + 30 * HOUR), NOW);
     observeMainQuotaIdentity("tray-memo-physical-c");
     expect(peekResetCreditExpiry("tray-memo-pool", 1, NOW)).toEqual({ fresh: true, soonestExpiresAt: NOW + 30 * HOUR });
+  });
+});
+
+describe("pooled block holder", () => {
+  const spent = (id: "5h" | "weekly", resetsAt: number): QuotaPoolWindow => ({
+    id, kind: id === "5h" ? "burst_5h" : "weekly", label: id, usedPercent: 100, exhausted: true,
+    resetsAt: new Date(resetsAt).toISOString(), source: "measured", observedAt: new Date(NOW - MINUTE).toISOString(),
+  });
+  const account = (eligible: boolean, ...windows: QuotaPoolWindow[]): PooledAccountInput => ({ eligible, weight: 1, windows });
+  const recovery = (accounts: PooledAccountInput[]) =>
+    pooledWindows(accounts, NOW).find(window => window.id === "availability")?.resetsAt;
+
+  test("an excluded account's window never names the block", () => {
+    const accounts = [account(false, spent("5h", NOW + HOUR)), account(true, spent("weekly", NOW + HOUR))];
+    expect(recovery(accounts)).toBe(new Date(NOW + HOUR).toISOString());
+    expect(pooledBlockHolder(accounts, NOW)).toBe("weekly");
+  });
+
+  test("an account still blocked by a later window does not hold the first recovery", () => {
+    const accounts = [
+      account(true, spent("5h", NOW + HOUR), spent("weekly", NOW + 48 * HOUR)),
+      account(true, spent("weekly", NOW + HOUR)),
+    ];
+    expect(recovery(accounts)).toBe(new Date(NOW + HOUR).toISOString());
+    expect(pooledBlockHolder(accounts, NOW)).toBe("weekly");
+  });
+
+  test("an account that can run means there is no block to hold", () => {
+    expect(pooledBlockHolder([account(true, spent("5h", NOW + HOUR)), account(true)], NOW)).toBeUndefined();
   });
 });

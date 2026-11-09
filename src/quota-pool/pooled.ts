@@ -183,3 +183,24 @@ export function pooledRecovery(accounts: readonly PooledAccountInput[], id: stri
   const at = Math.min(...recoveries.keys());
   return { at, percent: Math.min(100, recoveries.get(at)! / totalWeight * 100) };
 }
+
+/**
+ * The window id that holds the pool-wide block until its first recovery, from the same live
+ * eligible evidence `availability` reads: the last-resetting unscoped exhausted window of an
+ * account that recovers first. Undefined when the pool is not blocked or that moment is unknown.
+ */
+export function pooledBlockHolder(accounts: readonly PooledAccountInput[], now: number): string | undefined {
+  let first: { at: number; id: string } | undefined;
+  for (const account of accounts) {
+    if (!account.eligible || !Number.isFinite(account.weight) || account.weight <= 0) continue;
+    const blocks = account.windows.filter(window => current(window, now) && window.exhausted === true && window.scopeModel === undefined);
+    if (blocks.length === 0) return undefined;
+    let last: { at: number; id: string } | undefined;
+    for (const block of blocks) {
+      const at = timeMs(block.resetsAt) ?? Number.POSITIVE_INFINITY;
+      if (!last || at > last.at) last = { at, id: block.id };
+    }
+    if (Number.isFinite(last!.at) && (!first || last!.at < first.at)) first = last;
+  }
+  return first?.id;
+}

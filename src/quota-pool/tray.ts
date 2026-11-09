@@ -24,7 +24,7 @@ import type { CodexCapacityWindowAggregation } from "../providers/codex-capacity
 import type { QuotaPoolAccountState, QuotaPoolWindow } from "./contract";
 import { collectQuotaPoolProviders, type CollectedQuotaProvider, type QuotaPoolDeps, type TrackedAccount } from "./assemble";
 import { readQuotaPoolIdentity } from "./identity";
-import { pooledRecovery } from "./pooled";
+import { pooledBlockHolder, pooledRecovery } from "./pooled";
 
 export const QUOTA_TRAY_SCHEMA = "ocx.quota-tray/1" as const;
 export const RESET_CREDIT_INSPECT_RETRY_MS = 60 * 60_000;
@@ -124,16 +124,14 @@ function blockingId(id: string): "5h" | "weekly" | "other" {
   return id === "5h" || id === "weekly" ? id : "other";
 }
 
-function blocked(collected: CollectedQuotaProvider): QuotaTrayProvider["blocked"] {
+function blocked(collected: CollectedQuotaProvider, now: number): QuotaTrayProvider["blocked"] {
   if (collected.poolFromRows) {
     const availability = collected.windows.find(window => window.id === "availability");
     if (!availability) return undefined;
     const recoversAt = timeMs(availability.resetsAt);
-    // The window whose reset is the pool's first recovery.
-    const holder = recoversAt === undefined ? undefined : collected.rows
-      .flatMap(row => row.pool.windows)
-      .find(window => window.exhausted === true && window.scopeModel === undefined && timeMs(window.resetsAt) === recoversAt);
-    return { window: holder ? blockingId(holder.id) : "other", ...(recoversAt !== undefined ? { recoversAt } : {}) };
+    // The window holding the eligible account that recovers first.
+    const holder = recoversAt === undefined ? undefined : pooledBlockHolder(collected.rows.map(row => row.pool), now);
+    return { window: holder ? blockingId(holder) : "other", ...(recoversAt !== undefined ? { recoversAt } : {}) };
   }
   // A report is one budget: it runs again once its last exhausted window resets.
   const exhausted = collected.windows.filter(window => window.exhausted === true && window.scopeModel === undefined);
@@ -175,7 +173,7 @@ function trayAccount(row: TrackedAccount, now: number, stale: string[]): QuotaTr
 function trayProvider(collected: CollectedQuotaProvider, now: number, stale: string[]): QuotaTrayProvider | null {
   const fiveHour = poolWindow(collected, "fiveHour", now);
   const weekly = poolWindow(collected, "weekly", now);
-  const block = blocked(collected);
+  const block = blocked(collected, now);
   if (!fiveHour && !weekly && !block && collected.rows.length === 0) return null;
   const accounts = collected.rows.map(row => trayAccount(row, now, stale));
   return {
