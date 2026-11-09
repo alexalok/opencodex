@@ -40,10 +40,8 @@ export function noteResetCreditInspect(
   mainIdentityGeneration?: number,
 ): void {
   const main = accountId === MAIN_CODEX_ACCOUNT_ID;
-  if (main && !mainIdentityLive(mainIdentityGeneration)) {
-    memos.delete(accountId);
-    return;
-  }
+  // A superseded result is dropped, never allowed to clear the current identity's memo.
+  if (main && !mainIdentityLive(mainIdentityGeneration)) return;
   let soonest: number | undefined;
   for (const credit of result.credits) {
     const expires = Date.parse(credit.expires_at);

@@ -260,6 +260,10 @@ describe("reset-credit expiry memo", () => {
 
     noteResetCreditInspect(MAIN_CODEX_ACCOUNT_ID, credits(NOW + 50 * HOUR), NOW, captureMainAccountIdentityGeneration());
     expect(peekResetCreditExpiry(MAIN_CODEX_ACCOUNT_ID, 1, NOW)).toEqual({ fresh: true, soonestExpiresAt: NOW + 50 * HOUR });
+
+    // A superseded inspect that lands late is dropped without clearing B's live memo.
+    noteResetCreditInspect(MAIN_CODEX_ACCOUNT_ID, credits(NOW + 40 * HOUR), NOW, generationA);
+    expect(peekResetCreditExpiry(MAIN_CODEX_ACCOUNT_ID, 1, NOW)).toEqual({ fresh: true, soonestExpiresAt: NOW + 50 * HOUR });
   });
 
   test("pool accounts are keyed by their own id and need no identity generation", () => {
