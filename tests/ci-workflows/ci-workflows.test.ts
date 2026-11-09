@@ -705,6 +705,7 @@ describe("GitHub Actions hardening", () => {
     expect(release.jobs?.["validate-dispatch"]?.permissions).toEqual({
       contents: "read",
       actions: "read",
+      "pull-requests": "read",
     });
     
     // Publication is the irreversible public act, so it waits for the pre-publication

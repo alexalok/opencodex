@@ -288,7 +288,7 @@ describe("release pipeline contract", () => {
     expect(pack?.steps?.find(step => step.name === "Build npm package")?.run).toContain("npm run prepublishOnly");
     expect(pack?.steps?.find(step => step.name === "Build npm package")?.run).toContain("npm pack --ignore-scripts");
     expect(needsOf(verify)).toContain("package-npm");
-    expect(verify?.permissions).toEqual({ contents: "read", actions: "read" });
+    expect(verify?.permissions).toEqual({ contents: "read", actions: "read", "pull-requests": "read" });
     expect(verify?.steps?.find(step => step.name === "Create verified npm receipt")?.run).toContain("sha256");
     expect(verify?.if).toBeUndefined();
   });

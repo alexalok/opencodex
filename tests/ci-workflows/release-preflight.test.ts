@@ -10,7 +10,7 @@
  * `scripts/ci/release-preflight.sh` against a real tag set with fake `gh` and `npm`.
  */
 import { describe, expect, test } from "bun:test";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
@@ -216,7 +216,7 @@ describe("the release preflight job", () => {
 
   test("runs after dispatch validation with read-only permissions", () => {
     expect(needsOf(preflight)).toEqual(["validate-dispatch"]);
-    expect(preflight?.permissions).toEqual({ contents: "read" });
+    expect(preflight?.permissions).toEqual({ contents: "read", "pull-requests": "read" });
     expect(preflight?.["runs-on"]).toBe("ubuntu-latest");
   });
 
@@ -497,4 +497,35 @@ test.skipIf(process.platform === "win32")("final ordering preserves fork ancestr
     run(root, env, "git", "tag", "v2.92.0", source);
     expect(execute().exitCode).not.toBe(0); // Newer ancestor remains an ordering blocker.
   } finally { removeTreeWithRetry(root); }
+});
+
+
+test("every fork source guard caller has only its exact required token scopes", () => {
+  const expected: Record<string, Record<string, string>> = {
+    "release.yml:validate-dispatch": { contents: "read", actions: "read", "pull-requests": "read" },
+    "release.yml:preflight": { contents: "read", "pull-requests": "read" },
+    "release.yml:verify-npm": { contents: "read", actions: "read", "pull-requests": "read" },
+    "release.yml:publish": { contents: "write", actions: "read", "pull-requests": "read", "id-token": "write" },
+    "service-lifecycle.yml:validate-source": { contents: "read", "pull-requests": "read" },
+  };
+  const callers: string[] = [];
+  // Include indirect source() calls through evidence and history, not just the direct CLI.
+  const guard = /(?:fork-release\.cjs\s+(?:source|history|evidence)|release-evidence\.cjs\s+(?:resolve|check|service)|release-history\.cjs\s+check)(?:\s|$)|release-preflight\.sh/;
+  for (const file of readdirSync(repoPath(".github/workflows")).filter(name => /\.ya?ml$/.test(name))) {
+    const workflow = Bun.YAML.parse(readFileSync(repoPath(".github/workflows", file), "utf8")) as Workflow & { permissions?: Record<string, string> };
+    if (file === "release.yml" || file === "service-lifecycle.yml") {
+      expect(workflow.permissions).toEqual(file === "release.yml" ? {} : { contents: "read" });
+    }
+    for (const [id, job] of Object.entries(workflow.jobs ?? {})) {
+      if (job?.steps?.some(step => guard.test(step.run ?? ""))) {
+        const key = `${file}:${id}`;
+        callers.push(key);
+        expect(expected[key], key).toBeDefined();
+        expect(job.permissions, key).toEqual(expected[key]);
+      } else if (file === "release.yml" || file === "service-lifecycle.yml") {
+        expect(job?.permissions?.["pull-requests"], `${file}:${id}`).toBeUndefined();
+      }
+    }
+  }
+  expect(callers.sort()).toEqual(Object.keys(expected).sort());
 });

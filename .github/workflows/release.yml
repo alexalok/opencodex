@@ -48,6 +48,7 @@ jobs:
   validate-dispatch:
     runs-on: ubuntu-latest
     permissions:
+      pull-requests: read
       contents: read
       actions: read
     outputs:
@@ -192,6 +193,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      pull-requests: read
       contents: read
     env:
       SOURCE_SHA: ${{ needs.validate-dispatch.outputs.source_sha }}
@@ -1027,6 +1029,7 @@ jobs:
     needs: [validate-dispatch, package-npm]
     runs-on: ubuntu-latest
     permissions:
+      pull-requests: read
       contents: read
       actions: read
     outputs:
