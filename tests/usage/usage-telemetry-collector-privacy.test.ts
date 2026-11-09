@@ -495,7 +495,7 @@ test("public statistics fail closed for forged cohorts and previously cached agg
       }), h.env, undefined, NOW);
       expect(response.status).toBe(503);
       expect(response.headers.get("cache-control")).toBe("no-store");
-      expect(await response.json()).toEqual({ ok: false, error: "statistics unavailable until report identities are verified" });
+      expect(await response.json()).toEqual({ ok: false, error: "usage statistics unavailable until report provenance is verified" });
     }
     expect(edgeReads).toBe(0);
   } finally {
