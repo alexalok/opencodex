@@ -44,7 +44,7 @@ function aggregate(day: string, rows: Array<[string, string, number, number]>): 
 describe("opt-in public profile: client sync", () => {
   let home: string;
   let calls: Call[];
-  let respond: (call: Call) => Response;
+  let respond: (call: Call) => Response | Promise<Response>;
   const prevHome = process.env.OPENCODEX_HOME;
   const env = {} as Record<string, string | undefined>;
 
@@ -257,6 +257,40 @@ describe("opt-in public profile: client sync", () => {
     expect(existsSync(telemetryProfilePath(home))).toBe(false);
     expect(calls).toHaveLength(0);
     await connect();
+  });
+
+  test("an older overlapping disconnect preserves a reconnected profile and its deletion secret", async () => {
+    await connect();
+    const completions: Array<(response: Response) => void> = [];
+    let bothStarted!: () => void;
+    const started = new Promise<void>(resolve => { bothStarted = resolve; });
+    respond = call => {
+      expect(call.method).toBe("DELETE");
+      expect(call.headers.authorization).toBe(`Bearer ${SECRET}`);
+      return new Promise<Response>(resolve => {
+        completions.push(resolve);
+        if (completions.length === 2) bothStarted();
+      });
+    };
+    const first = disconnectTelemetryProfile({ configDir: home, now: CONNECT_AT });
+    const second = disconnectTelemetryProfile({ configDir: home, now: CONNECT_AT });
+    await started;
+    completions[0]!(Response.json({ ok: true, deleted: true }));
+    expect(await first).toEqual({ status: "deleted" });
+    expect(readTelemetryProfileFile(home).state).toBeNull();
+    const nextSecret = "ocxp_" + "B".repeat(43);
+    respond = () => Response.json({ ok: true, profile: { handle: "jun", displayName: "Jun", avatar: "blue" }, secret: nextSecret }, { status: 201 });
+    await connect();
+    const reconnected = readFileSync(telemetryProfilePath(home), "utf8");
+    completions[1]!(Response.json({ ok: true, deleted: true }));
+    expect(await second).toEqual({ status: "deleted" });
+    expect(readTelemetryProfileFile(home).state?.secret).toBe(nextSecret);
+    expect(readFileSync(telemetryProfilePath(home), "utf8")).toBe(reconnected);
+    respond = call => {
+      expect(call.headers.authorization).toBe(`Bearer ${nextSecret}`);
+      return Response.json({ ok: true, deleted: true });
+    };
+    expect(await disconnectTelemetryProfile({ configDir: home, now: CONNECT_AT })).toEqual({ status: "deleted" });
   });
 
   test("disconnect never reports success while the secret file is still on disk", async () => {
