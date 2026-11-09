@@ -61,6 +61,32 @@ function dumpProfileTables(): string {
 }
 
 describe("telemetry collector: opt-in profiles", () => {
+  test("deletion wins against an authenticated submission waiting to commit", async () => {
+    const secret = await create("delete-race");
+    const originalBatch = h.db.batch.bind(h.db);
+    const entered = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    h.db.batch = async statements => {
+      // Only the pending submission pauses; deletion uses the original atomic batch.
+      h.db.batch = originalBatch;
+      entered.resolve();
+      await resume.promise;
+      return originalBatch(statements);
+    };
+    const pending = submit(secret, "2026-11-08", 5, 500);
+    await entered.promise;
+    try {
+      expect((await send("/v1/profiles/me", { method: "DELETE", secret })).status).toBe(200);
+    } finally {
+      resume.resolve();
+    }
+    expect((await pending).status).toBe(200);
+    for (const table of ["profiles", "profile_days", "profile_day_families"]) {
+      expect(h.sqlite.query(`SELECT * FROM ${table}`).all()).toEqual([]);
+    }
+    expect((await submit(secret, "2026-11-08", 1, 1)).status).toBe(401);
+  });
+
   test("creating returns a one-time secret and stores only its hash, never the client address", async () => {
     const res = await send("/v1/profiles", { method: "POST", body: { schemaVersion: 1, handle: "Jun", displayName: "Jun", avatar: "teal" } }, CREATED);
     expect(res.status).toBe(201);
