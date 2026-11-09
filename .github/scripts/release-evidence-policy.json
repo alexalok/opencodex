@@ -213,7 +213,7 @@
     "kind": "ci",
     "version": 1,
     "files": {
-      ".github/workflows/ci.yml": "4b265ff42576cbf25e1bf7ae0f73ae8689668bb5",
+      ".github/workflows/ci.yml": "58e32a6e79eafba9cdb70a47cbdcf4128be7dad4",
       ".github/actions/setup-project-bun/action.yml": "cf28f6f9d4385d69784f4e3610914f6952ce789d",
       ".github/scripts/release-evidence.cjs": "7e01ce5af9ebf7a6f66c8f405f39eb8e714e01b2",
       ".github/scripts/release-evidence.test.cjs": "de30ad37105cf0e7dd8c538efb5ee1cfafe02990",

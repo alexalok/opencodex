@@ -830,6 +830,18 @@ jobs:
       - name: Check the generated ocx skill surface is current
         run: bun run skill:surface:check
 
+      # These upstream release trees need not be reachable from any fork ref.
+      # Fetch objects by immutable SHA only; never create or check out upstream branches.
+      - name: Fetch fixed upstream legacy test evidence
+        shell: bash
+        run: |
+          for sha in 0627a2c255bc239d5748119f1d0bc4457a1c03e3 667662903a6c139524506667d12656d9ad50fad0 68eee1eb804445ad86fe942b734060f323eb1517; do
+            if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
+              git fetch --no-tags --no-write-fetch-head https://github.com/lidge-jun/opencodex.git "$sha"
+            fi
+            git cat-file -e "$sha^{commit}"
+          done
+
       - name: Test release evidence, history and docs deployment
         run: node --test .github/scripts/fork-release.test.cjs .github/scripts/release-dispatch-guard.test.cjs .github/scripts/release-evidence.test.cjs .github/scripts/release-history.test.cjs .github/scripts/release-resume.test.cjs .github/workflows/deploy-docs.test.cjs
 
