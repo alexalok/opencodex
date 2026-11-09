@@ -21,7 +21,10 @@ import { ensureQuotaPoolIdentity, resetQuotaPoolIdentityMemoForTests } from "../
 import { saveCodexAccountCredential } from "../../src/codex/account-store";
 import { clearAccountQuota, setAccountQuotaFromParsed } from "../../src/codex/quota";
 import { noteResetCreditInspect, peekResetCreditExpiry, resetResetCreditExpiryMemoForTests } from "../../src/codex/reset-credit-expiry-memo";
-import { captureMainAccountIdentityGeneration, observeMainQuotaIdentity } from "../../src/codex/main-account-cache";
+import {
+  captureMainAccountIdentityGeneration, clearMainAccountInfoCache, observeMainQuotaIdentity, setMainAccountInfoCache,
+  type CachedMainAccountInfo,
+} from "../../src/codex/main-account-cache";
 import { MAIN_CODEX_ACCOUNT_ID } from "../../src/codex/account-id";
 import { getAccountSet, saveCredential } from "../../src/oauth/store";
 import { clearAccountQuotaCache, setCachedProviderAccountQuotaForTests } from "../../src/providers/quota";
@@ -236,6 +239,50 @@ describe("ocx.quota-tray/1", () => {
     expect(inspected).toHaveLength(2);
     await refreshAt(now + RESET_CREDIT_EXPIRY_MEMO_TTL_MS + RESET_CREDIT_INSPECT_RETRY_MS);
     expect(inspected).toHaveLength(3);
+  });
+
+  test("the main inspect retry window belongs to the signed-in identity", async () => {
+    codexHome = installIsolatedCodexHome("ocx-quota-tray-main-");
+    const config = {
+      port: 0, defaultProvider: "openai",
+      providers: { openai: { adapter: "openai-responses", baseUrl: "https://chatgpt.com/backend-api/codex", authMode: "forward" } },
+    } as OcxConfig;
+    const now = Date.now();
+    const signIn = (identity: string) => {
+      observeMainQuotaIdentity(identity);
+      setMainAccountInfoCache({
+        email: `${identity}@example.test`, plan: "plus", ts: now,
+        quota: { weeklyPercent: 100, weeklyResetAt: Math.floor((now + 50 * HOUR) / 1000), resetCredits: 1 },
+      } as CachedMainAccountInfo);
+    };
+    const inspected: string[] = [];
+    let clock = now;
+    const deps = {
+      now: () => clock,
+      inspectResetCredits: async (_config: OcxConfig, accountId: string) => {
+        inspected.push(accountId);
+        throw new Error("fixture upstream");
+      },
+    };
+    const read = async () => {
+      await (await readQuotaTray(config, deps) as { refresh?: Promise<void> }).refresh;
+    };
+    try {
+      signIn("tray-cooldown-a");
+      await read();
+      expect(inspected).toEqual([MAIN_CODEX_ACCOUNT_ID]);
+      clock = now + MINUTE;
+      await read();
+      expect(inspected).toHaveLength(1);
+
+      // A different login inherits nothing from the previous identity's failed attempt.
+      signIn("tray-cooldown-b");
+      clock = now + 2 * MINUTE;
+      await read();
+      expect(inspected).toEqual([MAIN_CODEX_ACCOUNT_ID, MAIN_CODEX_ACCOUNT_ID]);
+    } finally {
+      clearMainAccountInfoCache();
+    }
   });
 });
 

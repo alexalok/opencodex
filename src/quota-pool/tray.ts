@@ -19,6 +19,7 @@ import type { OcxConfig } from "../types";
 import { isPassiveRead, runPassiveRead } from "../lib/passive-read";
 import { peekResetCreditExpiry, noteResetCreditInspect } from "../codex/reset-credit-expiry-memo";
 import { captureMainAccountIdentityGeneration } from "../codex/main-account-cache";
+import { MAIN_CODEX_ACCOUNT_ID } from "../codex/account-id";
 import { OPENAI_CODEX_PROVIDER_ID } from "../providers/openai-tiers-destination";
 import type { CodexCapacityWindowAggregation } from "../providers/codex-capacity";
 import type { QuotaPoolAccountState, QuotaPoolWindow } from "./contract";
@@ -197,6 +198,11 @@ function trayProvider(collected: CollectedQuotaProvider, now: number, stale: str
 const lastInspectAttempt = new Map<string, number>();
 let inspecting = false;
 
+/** The retry window of `__main__` belongs to the physical identity signed in, not the logical id. */
+function inspectAttemptKey(accountId: string): string {
+  return accountId === MAIN_CODEX_ACCOUNT_ID ? `${accountId}#${captureMainAccountIdentityGeneration()}` : accountId;
+}
+
 async function defaultInspect(config: OcxConfig, accountId: string) {
   const { createResetCreditWhamClient } = await import("../codex/auth-api/reset-credit-service");
   return createResetCreditWhamClient(config, accountId).inspect();
@@ -206,12 +212,12 @@ async function defaultInspect(config: OcxConfig, accountId: string) {
 async function refreshResetCreditExpiries(config: OcxConfig, accountIds: readonly string[], deps: QuotaTrayDeps): Promise<void> {
   if (inspecting) return;
   const now = (deps.now ?? Date.now)();
-  const due = accountIds.filter(id => now - (lastInspectAttempt.get(id) ?? Number.NEGATIVE_INFINITY) >= RESET_CREDIT_INSPECT_RETRY_MS);
+  const due = accountIds.filter(id => now - (lastInspectAttempt.get(inspectAttemptKey(id)) ?? Number.NEGATIVE_INFINITY) >= RESET_CREDIT_INSPECT_RETRY_MS);
   if (due.length === 0) return;
   inspecting = true;
   try {
     for (const id of due) {
-      lastInspectAttempt.set(id, (deps.now ?? Date.now)());
+      lastInspectAttempt.set(inspectAttemptKey(id), (deps.now ?? Date.now)());
       try {
         if (deps.inspectResetCredits) {
           const mainIdentityGeneration = captureMainAccountIdentityGeneration();
