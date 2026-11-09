@@ -142,8 +142,8 @@ until then.
 `src/telemetry/contract.ts` directly, deduplicates reports on `(day, install_day_hash)` in a single
 atomic conditional D1 batch, rate-limits `POST /v1/events` to 120 reports/hour per salted hourly hash
 of the client key (`HTTP 429` with `Retry-After`; a bucket is deleted by the hourly prune at most 2 hours
-15 minutes after its hour begins) without storing raw IP addresses, and serves cached aggregate rollups
-from `GET /v1/stats`. The client key comes only from `cf-connecting-ip`: IPv4 per address,
+15 minutes after its hour begins) without storing raw IP addresses. Public `GET /v1/stats` is held closed
+with `503` (see [trust hold](#public-aggregate-trust-hold)); the following describes its unpublished internal builder. The client key comes only from `cf-connecting-ip`: IPv4 per address,
 IPv4-mapped IPv6 as that IPv4 address, and any other IPv6 address collapsed to its /64 prefix;
 `x-forwarded-for` is ignored and a request without `cf-connecting-ip` shares one fixed bucket. In
 `TelemetryStatsV1`, `totals.activeInstalls` and breakdown `installs` counters represent install-days
@@ -200,3 +200,7 @@ with `gui/src/telemetry-profile-api.ts`, and `docs-site/src/components/Telemetry
 - **Surfaces.** The Home card shows while telemetry is effective or a profile exists, hides when the route is refused
   (Remote Link Child), and renders user strings as text. The docs-site leaderboard validates a handle before
   building any request and writes names with `textContent` only (`tests/ci-workflows/docs-telemetry-leaderboard.test.ts`).
+
+## Public aggregate trust hold
+
+The collector returns `503`/`Cache-Control: no-store` for public `GET /v1/stats` before reading D1 or either cache. Anonymous reports remain ingestible but their client-mintable install hashes cannot establish distinct trusted users or satisfy a privacy threshold. Existing data is also withheld. Internal aggregation/cache code remains testable, not routed publicly; re-enabling publication requires reviewed non-mintable identity/provenance and historical-data handling, not an environment flag or shared public secret. This code change does not deploy the Worker or invalidate previously distributed responses.

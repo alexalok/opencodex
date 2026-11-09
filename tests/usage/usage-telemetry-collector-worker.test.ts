@@ -21,6 +21,7 @@ import type { PersistedUsageEntry } from "../../src/usage/log";
 import { repoPath } from "../helpers/repo-root";
 import { createInMemoryD1, postEventRequest } from "../helpers/telemetry-collector-d1";
 
+// Aggregate/cache tests call the unpublished internal handler; the public route is held closed.
 const NOW = Date.parse("2026-11-07T12:30:00.000Z");
 const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
@@ -443,7 +444,7 @@ describe("telemetry collector worker + D1", () => {
         }),
         h.env,
       );
-      expect(untrusted.status).toBe(200);
+      expect(untrusted.status).toBe(503);
       expect(untrusted.headers.get("access-control-allow-origin")).toBeNull();
 
       const getEvents = await worker.fetch(
@@ -482,7 +483,7 @@ describe("telemetry collector worker + D1", () => {
     }
   });
 
-  test("serves TelemetryStatsV1 across 7d, 30d, 90d, and 365d with every field and a 365-day heatmap", async () => {
+  test("internal builder produces TelemetryStatsV1 across 7d, 30d, 90d, and 365d with every field and a 365-day heatmap", async () => {
     const h = createInMemoryD1();
     try {
       const ingestCohortAt = async (
@@ -565,18 +566,16 @@ describe("telemetry collector worker + D1", () => {
       >) {
         const expectedReports = expected.reports;
         const expectedDays = expected.reports / 10;
-        const res = await handleCollectorFetch(
+        const res = await handleStats(
           new Request(`https://telemetry.opencodex.me/v1/stats?range=${range}`, {
             method: "GET",
             headers: { origin: "https://opencodex.me" },
           }),
           h.env,
-          undefined,
           NOW,
         );
         expect(res.status).toBe(200);
         expect(res.headers.get("cache-control")).toBe("public, max-age=300");
-        expect(res.headers.get("access-control-allow-origin")).toBe("https://opencodex.me");
 
         const stats = (await res.json()) as TelemetryStatsV1;
         expect(stats.schemaVersion).toBe(1);
@@ -640,10 +639,9 @@ describe("telemetry collector worker + D1", () => {
       }
 
       // Invalid range returns 400
-      const badRange = await handleCollectorFetch(
+      const badRange = await handleStats(
         new Request("https://telemetry.opencodex.me/v1/stats?range=14d"),
         h.env,
-        undefined,
         NOW,
       );
       expect(badRange.status).toBe(400);
@@ -1061,10 +1059,9 @@ describe("telemetry collector worker + D1", () => {
         }
       }
 
-      const statsRes = await handleCollectorFetch(
+      const statsRes = await handleStats(
         new Request("https://telemetry.opencodex.me/v1/stats?range=7d"),
         h.env,
-        undefined,
         NOW,
       );
       expect(statsRes.status).toBe(200);
@@ -1114,10 +1111,9 @@ describe("telemetry collector worker + D1", () => {
       }
 
       const batchCountBeforeStats = h.batchCalls.length;
-      const stats7dRes = await handleCollectorFetch(
+      const stats7dRes = await handleStats(
         new Request("https://telemetry.opencodex.me/v1/stats?range=7d&_=1"),
         h.env,
-        undefined,
         NOW,
       );
       expect(stats7dRes.status).toBe(200);
@@ -1134,10 +1130,9 @@ describe("telemetry collector worker + D1", () => {
       expect(h.batchCalls.length).toBe(batchCountBeforeStats + 1);
 
       // Cache-busted repeat request within 300s TTL must be served from Worker cache without hitting D1.
-      const cachedRes = await handleCollectorFetch(
+      const cachedRes = await handleStats(
         new Request("https://telemetry.opencodex.me/v1/stats?range=7d&_=cachebust2"),
         h.env,
-        undefined,
         NOW + 30_000,
       );
       expect(cachedRes.status).toBe(200);
@@ -1145,10 +1140,9 @@ describe("telemetry collector worker + D1", () => {
       expect(await cachedRes.json()).toEqual(stats7d);
 
       // Advancing past the 300s TTL expires the cached entry and triggers a fresh D1 batch.
-      const expiredRes = await handleCollectorFetch(
+      const expiredRes = await handleStats(
         new Request("https://telemetry.opencodex.me/v1/stats?range=7d&_=afterTtl"),
         h.env,
-        undefined,
         NOW + 300_001,
       );
       expect(expiredRes.status).toBe(200);
@@ -1179,10 +1173,9 @@ describe("telemetry collector worker + D1", () => {
       };
       try {
         clearStatsCache();
-        const populateEdge = await handleCollectorFetch(
+        const populateEdge = await handleStats(
           new Request("https://telemetry.opencodex.me/v1/stats?range=30d&utm=1"),
           h.env,
-          undefined,
           NOW,
         );
         expect(populateEdge.status).toBe(200);
@@ -1190,10 +1183,9 @@ describe("telemetry collector worker + D1", () => {
         const batchesAfterPopulate = h.batchCalls.length;
 
         clearStatsCache();
-        const fromEdge = await handleCollectorFetch(
+        const fromEdge = await handleStats(
           new Request("https://telemetry.opencodex.me/v1/stats?range=30d&utm=2"),
           h.env,
-          undefined,
           NOW + 5_000,
         );
         expect(fromEdge.status).toBe(200);
@@ -1385,10 +1377,9 @@ describe("telemetry collector worker + D1", () => {
         errorCount: 1,
       });
 
-      const resFolded = await handleCollectorFetch(
+      const resFolded = await handleStats(
         new Request("https://telemetry.opencodex.me/v1/stats?range=7d"),
         h.env,
-        undefined,
         NOW,
       );
       expect(resFolded.status).toBe(200);
@@ -1490,10 +1481,9 @@ describe("telemetry collector worker + D1", () => {
             .run();
         }
 
-        const resDropped = await handleCollectorFetch(
+        const resDropped = await handleStats(
           new Request("https://telemetry.opencodex.me/v1/stats?range=7d"),
           hDrop.env,
-          undefined,
           NOW,
         );
         expect(resDropped.status).toBe(200);
