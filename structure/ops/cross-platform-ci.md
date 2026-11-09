@@ -136,3 +136,5 @@ Review of the legacy history mapping, security review, actual dry-run evidence a
 remain open; a CI run alone does not authorize publication.
 
 The shared Responses path follows the [bounded multipart recovery contract](../subagents.md#multipart-encrypted-task-recovery); credential admission and retry policy remain unchanged.
+
+Heavy Linux jobs select the optional `lidge` self-hosted pool only on manual dispatch with `LIDGE_RUNNERS=on`. All pull requests remain GitHub-hosted regardless of branch ownership or author association; runner-group authorization remains an external control.
