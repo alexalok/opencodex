@@ -42,7 +42,7 @@ describe("enforce-pr-target workflow", () => {
       pr("main", "alex/fix"),
     ]) assert.equal(accepts("alexalok", "opencodex", candidate, ["dev"]), false);
     assert.equal(accepts("lidge-jun", "opencodex", pr("releases/v2.90.0", "backports/v2.90.0/search"), ["dev"]), false);
-    assert.match(workflow, /if \(!isForkRepository\) \{\s+const \{ data: mainCompare \}/);
+    assert.doesNotMatch(workflow, /const \{ data: mainCompare \}/, "deleted main branch must not be queried in any repository");
     assert.match(workflow, /if \(!baseAllowed && !isForkRepository\)/);
   });
 

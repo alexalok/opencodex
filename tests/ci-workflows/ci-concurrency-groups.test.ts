@@ -104,7 +104,7 @@ test("every trigger this workflow declares is one the cases above cover", () => 
   expect(Object.keys(workflow.on ?? {}).sort()).toEqual(["pull_request", "workflow_dispatch"]);
 });
 
-test("cross-platform workflows have only PR and manual triggers and reject non-dev dispatches", () => {
+test("cross-platform workflows restrict dispatch to dev and explicit fork release CI", () => {
   for (const file of ["ci.yml", "service-lifecycle.yml", "catalog-async-contracts.yml"]) {
     const parsed = Bun.YAML.parse(readFileSync(repoPath(".github", "workflows", file), "utf8")) as {
       on: Record<string, unknown>; jobs: Record<string, { if?: string; needs?: string | string[]; strategy?: {matrix?: {os?: string}}; steps?: Array<{name?: string; run?: string; env?: Record<string, string>}> }>;
@@ -129,6 +129,12 @@ test("cross-platform workflows have only PR and manual triggers and reject non-d
       expect(matrix).toContain("'[\"ubuntu-latest\",\"macos-latest\",\"windows-latest\"]'");
     }
     if (file === "ci.yml") {
+      for (const repository of ["lidge-jun/opencodex", "alexalok/opencodex"]) {
+        for (const ref of ["refs/heads/releases/v2.95.0", "refs/heads/main", "refs/heads/backports/v2.95.0/test", "refs/heads/releases/v2.95.0/extra"]) {
+          const result = Bun.spawnSync(["bash", "-c", run!], {env: {PATH: process.env.PATH ?? "/usr/bin:/bin", EVENT_NAME: "workflow_dispatch", REF: ref, GITHUB_REPOSITORY: repository}});
+          expect(result.exitCode === 0, `${repository} ${ref}`).toBe(repository === "alexalok/opencodex" && ref === "refs/heads/releases/v2.95.0");
+        }
+      }
       for (const id of ["platform-macos", "macos-control", "platform-windows", "widget"]) {
         const needs = parsed.jobs[id]?.needs;
         expect(Array.isArray(needs) ? needs : [needs], id).toContain("changes");
@@ -137,7 +143,9 @@ test("cross-platform workflows have only PR and manual triggers and reject non-d
     if (file === "service-lifecycle.yml") {
       for (const id of ["macos-launchd", "windows-schtasks"]) {
         expect(parsed.jobs[id]?.needs).toBe("validate-source");
-        expect(parsed.jobs[id]?.if).toBe("github.event_name != 'pull_request'");
+        expect(parsed.jobs[id]?.if).toBe(id === "macos-launchd"
+          ? "github.event_name != 'pull_request' && (github.repository != 'alexalok/opencodex' || github.event_name == 'workflow_dispatch')"
+          : "github.event_name != 'pull_request'");
       }
     }
   }
