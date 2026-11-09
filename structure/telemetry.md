@@ -176,7 +176,7 @@ with `gui/src/telemetry-profile-api.ts`, and `docs-site/src/components/Telemetry
   `ocx telemetry profile connect` refuses `isAgentDriven()` (`agent_consent_required`) and non-TTY or `OCX_SERVICE`
   (`tty_required`) and asks `[y/N]`. Connecting requires anonymous telemetry to be effective; it never writes
   `config.json`, `telemetry-state.json` or `telemetry-id.json`. Disconnecting (`DELETE /api/telemetry/profile`,
-  `ocx telemetry profile disconnect`) is always permitted and never touches the telemetry decision.
+  `ocx telemetry profile disconnect`) is always permitted and never touches the telemetry decision. After a collector deletion response, disconnect re-reads local state and removes only the matching secret; a reconnected profile is preserved, and unreadable replacement state fails closed.
 - **No linkage.** No file under `src/telemetry/profile/` imports `install-id`, `payload` or `sender` or names the install
   id, install-day hash or batch id (`tests/usage/usage-telemetry-profile-sync.test.ts` scans for it). Profile calls go
   to `/v1/profiles*` with a bearer secret on their own timer.
