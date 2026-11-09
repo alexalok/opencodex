@@ -77,10 +77,13 @@ Reset-credit expiry is not part of WHAM usage. `src/codex/reset-credit-expiry-me
 the soonest expiry from every reset-credit inspect this process makes (dashboard, auto-redeemer,
 tray), valid while its count matches the stored count and for `RESET_CREDIT_EXPIRY_MEMO_TTL_MS`
 (12 hours). The native main login's memo is also bound to the main identity generation its inspect
-authenticated under, so a different signed-in account never inherits it. After answering, the tray
-read may start a background inspect for a Codex account whose memo is missing or stale: one
+authenticated under, so a different signed-in account never inherits it, and an inspect that
+finishes after a switch is dropped without touching the new identity's memo. After answering, the
+tray read may start a background inspect for a Codex account whose memo is missing or stale: one
 account at a time, at most once per `RESET_CREDIT_INSPECT_RETRY_MS` (1 hour) per account, outside
-the passive read. A caller that is already passive (a Remote Link Child's relayed read) starts
+the passive read. The native main login's retry window is keyed by its identity generation, so a
+new login is not held back by the previous one's attempt. A caller that is already passive (a
+Remote Link Child's relayed read) starts
 none. The response never waits on it. `tests/usage/quota-tray.test.ts` covers the shape, recovery
 parity with the dashboard aggregate, the block holder, masking, the memo identity binding, and the
 inspect bounds.
