@@ -20,6 +20,7 @@ import { fetchMainAccountInfoAttempt } from "./main-account-probe";
 import type { MainResetQuotaProof } from "./main-account-probe";
 import { currentQuotaDispatchSequence, fetchPoolAccountQuota } from "./pool-quota-probe";
 import { getRuntimeConfig, configuredPoolAccount } from "./runtime-config";
+import { noteResetCreditInspect } from "../reset-credit-expiry-memo";
 
 interface ResetCreditAuth {
   isMain: boolean;
@@ -140,7 +141,9 @@ export function createResetCreditWhamClient(config: OcxConfig, accountId: string
       if (!resp.ok) { await resp.body?.cancel().catch(() => {}); throw new Error(`upstream ${resp.status}`); }
       const parsed = await readResetCreditJson(resp, AbortSignal.timeout(8000));
       if (!parsed.ok) throw new Error("invalid upstream reset-credit response");
-      return safeResetCreditsDto(parsed.value);
+      const credits = safeResetCreditsDto(parsed.value);
+      noteResetCreditInspect(accountId, credits);
+      return credits;
     }),
     consume: redeemRequestId => run(async auth => {
       const resp = await fetch("https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume", {
@@ -303,7 +306,9 @@ export async function inspectResetCredits(config: OcxConfig, accountId: string, 
       if (!parsed.ok) {
         return jsonResponse({ error: "Invalid upstream reset-credit response" }, 502);
       }
-      return jsonResponse(safeResetCreditsDto(parsed.value));
+      const credits = safeResetCreditsDto(parsed.value);
+      noteResetCreditInspect(accountId, credits);
+      return jsonResponse(credits);
     } finally {
       detachBodyAbort();
       linkedSignal.cleanup();

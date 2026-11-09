@@ -160,3 +160,26 @@ export function pooledWindows(accounts: readonly PooledAccountInput[], now: numb
   }
   return out;
 }
+
+/**
+ * The next capacity recovery of window `id` over the same live accounts `pooledWindows` averages:
+ * the earliest reset among accounts with used capacity, and the share of the pool's weighted
+ * capacity (Σ weight over accounts with a reading) that comes back then. The same estimate
+ * `aggregateCodexPoolCapacity` reports as `nextRecoveryAt` / `nextRecoveryPercent`.
+ */
+export function pooledRecovery(accounts: readonly PooledAccountInput[], id: string, now: number): { at: number; percent: number } | undefined {
+  let totalWeight = 0;
+  const recoveries = new Map<number, number>();
+  for (const account of accounts) {
+    if (!account.eligible || !Number.isFinite(account.weight) || account.weight <= 0) continue;
+    const window = account.windows.find(candidate => candidate.id === id && candidate.usedPercent !== undefined && current(candidate, now));
+    if (!window) continue;
+    totalWeight += account.weight;
+    const reset = timeMs(window.resetsAt);
+    const consumed = account.weight * window.usedPercent! / 100;
+    if (reset !== undefined && consumed > 0) recoveries.set(reset, (recoveries.get(reset) ?? 0) + consumed);
+  }
+  if (totalWeight === 0 || recoveries.size === 0) return undefined;
+  const at = Math.min(...recoveries.keys());
+  return { at, percent: Math.min(100, recoveries.get(at)! / totalWeight * 100) };
+}
