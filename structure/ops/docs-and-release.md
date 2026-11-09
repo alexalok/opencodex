@@ -403,7 +403,7 @@ respawn runs the replaced files at the same path, and refuses while that version
 
 ## Release workflow
 
-Package release is npm-focused. `.github/workflows/release.yml` resolves a qualifying exact
+Upstream package release is npm-focused. `.github/workflows/release.yml` resolves a qualifying exact
 `dev` source using the trusted workflow revision, derives the version and stamps the four version
 sources in temporary build checkouts using `scripts/release-version-sources.ts`. The sources are
 `package.json`, `desktop/src-tauri/tauri.conf.json`, `desktop/src-tauri/Cargo.toml`, and the
@@ -412,8 +412,8 @@ a real publication or resume requires the repository variable `OCX_DEV_RELEASE_P
 to equal `true`. Independent review of the legacy history mapping, security review, real dry-run
 evidence and settings must be resolved before cutover; this text does not attest those gates.
 Docs publishing is separate. Dispatch inputs are `tag` (`latest` or `preview`), `dry-run`
-(default `true`), `expected-sha`, `version` and `resume-after-npm-publish`; `scripts/release.ts`
-dispatches ordinary runs only, so a resume is dispatched by hand.
+(default `true`), `expected-sha`, `version`, `release-branch` and `resume-after-npm-publish`; `scripts/release.ts`
+dispatches ordinary upstream runs only, so an upstream resume is dispatched by hand. For `alexalok/opencodex`, `release-branch` is mandatory and names the merged `releases/vX.Y.Z` source; `expected-sha` and `version` must match its exact tip and committed mirrors. Dispatch the trusted workflow from `dev`, preserve the publication hold and no-downgrade checks, and do not use the inherited local helper. Fork resume remains refused pending a reviewed receipt policy; see [fork source selection](../../AGENTS.md#fork-release-source-and-external-review).
 
 The `package-standalone` job in `.github/workflows/release.yml` also builds Bun compiled
 `ocx` archives for Linux, macOS, and Windows, bundles `gui/dist`, smoke-tests `/healthz`, and
