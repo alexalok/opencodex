@@ -42,26 +42,31 @@ function source(branch, candidate, read = api) {
   must(prs.some(pr => pr.merged_at && pr.merge_commit_sha === candidate && pr.base?.ref === branch && pr.base?.repo?.id === ID),'source must be a merged PR commit on selected release branch');
   return base;
 }
-async function evidence(branch,candidate,kind) {
-  source(branch,candidate);
+async function evidence(branch,candidate,kind,read = api,policies = require('./release-evidence-policy.json')) {
+  source(branch,candidate,read);
   const filename = kind === 'service' ? 'service-lifecycle.yml' : 'ci.yml';
-  const wf = api(`repos/${FORK}/actions/workflows/${filename}`);
+  const wf = read(`repos/${FORK}/actions/workflows/${filename}`);
   must(wf.path === `.github/workflows/${filename}` && Number.isSafeInteger(wf.id),'workflow identity mismatch');
   const params = new URLSearchParams({event:'workflow_dispatch',branch:kind === 'ci' ? branch : 'dev',status:'success',per_page:'100'});
   if (kind === 'ci') params.set('head_sha',candidate);
-  const result = api(`repos/${FORK}/actions/workflows/${wf.id}/runs?${params}`);
+  const result = read(`repos/${FORK}/actions/workflows/${wf.id}/runs?${params}`);
   must(Number.isSafeInteger(result.total_count) && result.total_count <= 100 && result.workflow_runs.length === result.total_count,'incomplete fork evidence pagination');
   const {CI_JOBS,serviceJobs,validateJobs,assertPolicy} = require('./release-evidence.cjs');
   for (const run of result.workflow_runs) {
     if (run.repository?.id !== ID || run.head_repository?.id !== ID || run.workflow_id !== wf.id || run.event !== 'workflow_dispatch' || run.status !== 'completed' || run.conclusion !== 'success') continue;
     if (kind === 'ci' && (run.head_sha !== candidate || run.head_branch !== branch || run.display_title !== `ocx-ci-v1 lane=all sha=${candidate}`)) continue;
     if (kind === 'service' && run.head_branch !== 'dev') continue;
-    await assertPolicy(async path => api(`repos/${FORK}${path}`),run,kind,require('./release-evidence-policy.json'));
-    const jobs = api(`repos/${FORK}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`);
+    try { await assertPolicy(async path => read(`repos/${FORK}${path}`),run,kind,policies); }
+    catch (error) {
+      // An unapproved run is not evidence; transport/incomplete/unknown failures are fatal.
+      if (error instanceof Error && error.message === `unapproved ${kind} workflow or helper policy`) continue;
+      throw error;
+    }
+    const jobs = read(`repos/${FORK}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`);
     must(jobs.total_count <= 100 && jobs.jobs.length === jobs.total_count,'incomplete fork jobs');
     try { validateJobs(jobs.jobs,kind === 'ci' ? CI_JOBS : serviceJobs(candidate)); }
     catch { continue; }
-    source(branch,candidate);
+    source(branch,candidate,read);
     return {sourceSha:candidate,ciRunId:run.id};
   }
   throw Error(`no qualifying fork ${kind} evidence`);
