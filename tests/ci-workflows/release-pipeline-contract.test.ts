@@ -503,7 +503,7 @@ describe("release pipeline contract", () => {
       const mock = String.raw`
         git() { case "$1" in tag) if [ "$BASELINE" = yes ]; then echo v2.0.0; fi ;; rev-parse) echo "$BASE_SHA" ;; *) return 91 ;; esac; }
         bun() { cat >/dev/null; [ "$BASELINE" = yes ] && echo v2.0.0 || :; }
-        gh() { echo "$DRAFT"; }
+        gh() { printf 'gh %s\n' "$*" >> "$CALLS"; echo "$DRAFT"; return "$GH_STATUS"; }
         node() {
           if [ "$1" = .github/scripts/release-evidence.cjs ]; then
             printf '%s\n' "$*" >> "$CALLS"
@@ -515,7 +515,7 @@ describe("release pipeline contract", () => {
         writeFileSync(calls, "");
         const result = Bun.spawnSync(["bash", "-e", "-c", mock + verify!], { cwd: root, env: {
           PATH: process.env.PATH ?? "/usr/bin:/bin", SOURCE_SHA: source, BASE_SHA: baseline, RELEASE_VERSION: "2.1.0",
-          BASELINE: "yes", DRAFT: "false", REQUIRED: "true", CI_STATUS: "0", SERVICE_STATUS: "0", CALLS: calls, ...extra,
+          BASELINE: "yes", DRAFT: "false", REQUIRED: "true", CI_STATUS: "0", SERVICE_STATUS: "0", GH_STATUS: "0", CALLS: calls, ...extra,
         }, stdout: "pipe", stderr: "pipe" });
         return { code: result.exitCode, calls: readFileSync(calls, "utf8"), stderr: result.stderr.toString() };
       };
@@ -530,6 +530,13 @@ describe("release pipeline contract", () => {
       const initial = execute({ BASELINE: "no" });
       expect(initial.code, initial.stderr).toBe(0);
       expect(initial.calls).toContain(`service-range ${source} --initial`);
+      const forkInitial = execute({ GITHUB_REPOSITORY: "alexalok/opencodex", GH_STATUS: "1" });
+      expect(forkInitial.code, forkInitial.stderr).toBe(0);
+      expect(forkInitial.calls).toContain(`service-range ${source} --initial`);
+      expect(forkInitial.calls).toContain(`service ${source}`);
+      expect(forkInitial.calls).not.toContain("gh release view");
+      expect(execute({ GITHUB_REPOSITORY: "alexalok/opencodex", SERVICE_STATUS: "1" }).code).not.toBe(0);
+      expect(execute({ GITHUB_REPOSITORY: "lidge-jun/opencodex", GH_STATUS: "1" }).code).not.toBe(0);
       for (const bad of [{ CI_STATUS: "1" }, { SERVICE_STATUS: "1" }, { DRAFT: "true" }, { REQUIRED: "null" }]) {
         expect(execute(bad).code, JSON.stringify(bad)).not.toBe(0);
       }

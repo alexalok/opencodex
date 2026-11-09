@@ -1078,7 +1078,9 @@ jobs:
             console.log(eligible.at(-1)?.tag ?? "");
           ')"
           baseline=--initial
-          if [ -n "$baseline_tag" ]; then
+          # Fork tags may be inherited upstream publications absent from this repository.
+          # Check the complete candidate tree instead; service evidence remains mandatory.
+          if [ -n "$baseline_tag" ] && [ "${GITHUB_REPOSITORY:-}" != alexalok/opencodex ]; then
             draft="$(gh release view "$baseline_tag" --json isDraft --jq .isDraft)"
             test "$draft" = false || { echo '::error::Service baseline is not a published release.'; exit 1; }
             baseline="$(git rev-parse "refs/tags/${baseline_tag}^{commit}")"
@@ -1576,7 +1578,9 @@ jobs:
             console.log(eligible.at(-1)?.tag ?? "");
           ')"
           baseline=--initial
-          if [ -n "$baseline_tag" ]; then
+          # Fork tags may be inherited upstream publications absent from this repository.
+          # Check the complete candidate tree instead; service evidence remains mandatory.
+          if [ -n "$baseline_tag" ] && [ "${GITHUB_REPOSITORY:-}" != alexalok/opencodex ]; then
             draft="$(gh release view "$baseline_tag" --json isDraft --jq .isDraft)"
             test "$draft" = false || { echo '::error::Service baseline is not a published release.'; exit 1; }
             baseline="$(git rev-parse "refs/tags/${baseline_tag}^{commit}")"
