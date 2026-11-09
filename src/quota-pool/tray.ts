@@ -12,10 +12,11 @@
  * (`src/codex/reset-credit-expiry-memo.ts`) and, after responding, may start a background
  * inspect for an account whose memo is missing or no longer matches its credit count: one account
  * at a time, at most once per `RESET_CREDIT_INSPECT_RETRY_MS` per account. The response itself
- * never waits on upstream.
+ * never waits on upstream. A caller that is already passive (a Remote Link Child's relayed read)
+ * starts no inspect: only the Home's own tray reads make the Home act.
  */
 import type { OcxConfig } from "../types";
-import { runPassiveRead } from "../lib/passive-read";
+import { isPassiveRead, runPassiveRead } from "../lib/passive-read";
 import { peekResetCreditExpiry, noteResetCreditInspect } from "../codex/reset-credit-expiry-memo";
 import { OPENAI_CODEX_PROVIDER_ID } from "../providers/openai-tiers-destination";
 import type { CodexCapacityWindowAggregation } from "../providers/codex-capacity";
@@ -214,6 +215,7 @@ async function refreshResetCreditExpiries(config: OcxConfig, accountIds: readonl
 
 /** The tray view, or an identity error. The response never waits on upstream. */
 export async function readQuotaTray(config: OcxConfig, deps: QuotaTrayDeps = {}): Promise<QuotaTrayResult & { refresh?: Promise<void> }> {
+  const passiveCaller = isPassiveRead();
   const stale: string[] = [];
   const result = await runPassiveRead(async (): Promise<QuotaTrayResult> => {
     const identity = readQuotaPoolIdentity();
@@ -223,7 +225,7 @@ export async function readQuotaTray(config: OcxConfig, deps: QuotaTrayDeps = {})
       .flatMap(collected => trayProvider(collected, now, stale) ?? []);
     return { ok: true, tray: { schema: QUOTA_TRAY_SCHEMA, generatedAt: now, providers } };
   });
-  if (!result.ok || stale.length === 0) return result;
+  if (!result.ok || stale.length === 0 || passiveCaller) return result;
   return { ...result, refresh: refreshResetCreditExpiries(config, stale, deps) };
 }
 

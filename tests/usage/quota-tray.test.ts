@@ -23,6 +23,7 @@ import { getAccountSet, saveCredential } from "../../src/oauth/store";
 import { clearAccountQuotaCache, setCachedProviderAccountQuotaForTests } from "../../src/providers/quota";
 import { setProviderQuotaReportCache } from "../../src/providers/quota/report-cache";
 import { linkManagementReadAllowed } from "../../src/link/management-routes";
+import { runPassiveRead } from "../../src/lib/passive-read";
 import { installIsolatedCodexHome, type IsolatedCodexHome } from "../helpers/isolated-codex-home";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
 
@@ -188,6 +189,11 @@ describe("ocx.quota-tray/1", () => {
         ] };
       },
     };
+    // A Remote Link Child's relayed read is already passive: it must not make the Home inspect.
+    const relayed = await runPassiveRead(() => readQuotaTray(config, deps));
+    expect(relayed.refresh).toBeUndefined();
+    expect(inspected).toEqual([]);
+
     const first = await readQuotaTray(config, deps);
     if (!first.ok) throw new Error(first.error);
     const openai = first.tray.providers.find(provider => provider.provider === "openai")!;
