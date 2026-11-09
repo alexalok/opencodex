@@ -19,7 +19,7 @@ import { computeInstallDayHash } from "../../src/telemetry/install-id";
 import { buildTelemetryPayloadV1 } from "../../src/telemetry/payload";
 import { createInMemoryD1, postEventRequest, type InMemoryD1Harness } from "../helpers/telemetry-collector-d1";
 
-// Small-cohort protection (D15) and rate-limit keying (D16) of the telemetry collector.
+// Unpublished internal cohort algorithm (D15), public trust hold, and rate-limit keying (D16).
 // The cohort threshold must hold per (day, key) on a count of DISTINCT installs, so one
 // install can never pass it alone by reporting on many days or through many rows.
 
@@ -193,7 +193,7 @@ describe("telemetry collector small-cohort protection", () => {
     }
   });
 
-  test("a genuine cohort of 10 distinct installs on one day is published, counted once per install", async () => {
+  test("internal builder counts 10 distinct reported hashes once each without proving identity", async () => {
     const h = createInMemoryD1("cohort-genuine-salt");
     try {
       // Day A: 10 distinct installs through openrouter, each with a different family.
@@ -469,4 +469,37 @@ describe("telemetry collector review round 2 regressions", () => {
       h.close();
     }
   });
+});
+
+
+test("public statistics fail closed for forged cohorts and previously cached aggregates", async () => {
+  const h = createInMemoryD1();
+  const previousCaches = (globalThis as { caches?: unknown }).caches;
+  let edgeReads = 0;
+  try {
+    clearStatsCache();
+    for (let i = 0; i < 10; i++) await ingest(h, {
+      day: "2026-11-07", installUuid: uuidFor("feedface", i),
+      models: [{ providerKind: "openai", modelFamily: "gpt-5", requests: 1, inputTokens: 999_999_999_999 }],
+    });
+    // Demonstrate the attacker-controlled reports reach the old cohort threshold internally.
+    const internal = await stats(h, "7d");
+    expect(internal.models.some(row => row.tokens === 9_999_999_999_990)).toBe(true);
+    (globalThis as { caches?: unknown }).caches = { default: {
+      async match() { edgeReads++; return new Response(JSON.stringify(internal), { headers: { "x-ocx-stats-cached-at": String(NOW) } }); },
+      async put() { throw new Error("Public hold must not cache aggregates"); },
+    } };
+    for (const range of ["7d", "30d", "90d", "365d"]) {
+      const response = await handleCollectorFetch(new Request(`https://telemetry.opencodex.me/v1/stats?range=${range}`, {
+        headers: { origin: "https://opencodex.me", authorization: "Bearer forged", "x-install-id": "forged" },
+      }), h.env, undefined, NOW);
+      expect(response.status).toBe(503);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(await response.json()).toEqual({ ok: false, error: "statistics unavailable until report identities are verified" });
+    }
+    expect(edgeReads).toBe(0);
+  } finally {
+    (globalThis as { caches?: unknown }).caches = previousCaches;
+    clearStatsCache(); h.close();
+  }
 });

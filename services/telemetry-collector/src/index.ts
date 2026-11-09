@@ -8,7 +8,6 @@ import {
   handleSubmitProfileDay,
 } from "./profiles";
 import { pruneCollectorTables } from "./prune";
-import { handleStats } from "./stats";
 import type { CollectorEnv, ExecutionContext, ScheduledController } from "./types";
 
 export const ALLOWED_CORS_ORIGINS = Object.freeze([
@@ -132,7 +131,12 @@ export async function handleCollectorFetch(
           jsonError(405, "method not allowed", { allow: "GET, OPTIONS" }),
         );
       }
-      return withCors(request, await handleStats(request, env, now));
+      // Anonymous installDayHash values are client-mintable, not authenticated identities.
+      // Withhold all existing and new aggregates, before either cache is consulted, until
+      // a reviewed identity/provenance scheme can exclude untrusted reports from cohorts.
+      return withCors(request, jsonError(503, "statistics unavailable until report identities are verified", {
+        "cache-control": "no-store",
+      }));
     }
 
     if (pathname === "/v1/leaderboard" || pathname.startsWith("/v1/profiles")) {
