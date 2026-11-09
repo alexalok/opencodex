@@ -529,3 +529,32 @@ test("every fork source guard caller has only its exact required token scopes", 
   }
   expect(callers.sort()).toEqual(Object.keys(expected).sort());
 });
+
+
+test("candidate and publication jobs require owner dispatch and rerun independently of prior validation", () => {
+  for (const file of ["release.yml", "service-lifecycle.yml"]) {
+    const workflow = Bun.YAML.parse(readFileSync(repoPath(".github/workflows", file), "utf8")) as Workflow;
+    const jobs = file === "release.yml"
+      ? ["preflight", "package-standalone", "package-desktop", "package-npm", "verify-npm", "verify-release", "attach-release", "publish", "release-outcomes"]
+      : ["linux-systemd", "macos-launchd", "windows-schtasks"];
+    for (const id of jobs) {
+      const condition = workflow.jobs?.[id]?.if;
+      expect(condition, `${file}:${id}`).toBeDefined();
+      const expression = condition!.replace(/^\$\{\{\s*|\s*\}\}$/g, "").replaceAll("inputs.dry-run", "inputs.dryRun").replaceAll("needs.validate-dispatch", "needs.validateDispatch");
+      const evaluate = new Function("github", "inputs", "needs", "always", `return (${expression});`);
+      const run = (actor: string | undefined, triggering_actor: string | undefined, repository = "alexalok/opencodex", dryRun = false) => evaluate(
+        { actor, triggering_actor, repository, event_name: "workflow_dispatch", ref: "refs/heads/dev" },
+        { dryRun }, { validateDispatch: { result: "success" } }, () => true,
+      );
+      expect(run("alexalok", "alexalok"), `${file}:${id}`).toBe(true);
+      for (const pair of [["writer", "writer"], ["alexalok", "writer"], ["writer", "alexalok"], [undefined, "alexalok"], ["alexalok", undefined]]) {
+        expect(run(pair[0], pair[1]), `${file}:${id}`).toBe(false);
+      }
+      expect(run("upstream-maintainer", "upstream-maintainer", "lidge-jun/opencodex"), `${file}:${id}`).toBe(true);
+      if (id.startsWith("package-")) {
+        expect(run("alexalok", "writer", "alexalok/opencodex", true), id).toBe(false);
+        expect(run("alexalok", "alexalok", "alexalok/opencodex", true), id).toBe(true);
+      }
+    }
+  }
+});

@@ -538,7 +538,15 @@ For `alexalok/opencodex`, dispatch the trusted `dev` revision of `release.yml`
 with an explicit `release-branch`, exact `expected-sha`, and `version`. This
 supersedes dispatching the workflow itself from a release branch. The source
 must be the exact current tip of `releases/vX.Y.Z` and a merged PR commit on
-that branch. Runtime source never comes from current `dev`. Version mirrors
+that branch. The canonical fork release authority is owner `alexalok`: both the
+original dispatch actor and rerun actor must be this owner, and the source PR
+must have been merged by this owner. Writers, self-approved PRs, upstream roster
+membership and repository admin roles do not substitute for this authorization.
+The guard reads full PR merger metadata from GitHub under trusted `dev` policy;
+candidate-controlled rosters never grant authority. Qualification evidence also
+requires owner dispatch/rerun identities. Candidate execution and publication
+jobs independently gate reruns before accessing signing credentials, including
+dry runs. Runtime source never comes from current `dev`. Version mirrors
 remain committed on the release branch and each backport increases its patch;
 the workflow must not derive a newer upstream base or silently change that version.
 

@@ -3,7 +3,7 @@
 // Fork policy runs from the trusted dev workflow checkout, never from the candidate.
 const {execFileSync} = require('node:child_process');
 const {compareVersions} = require('./release-history.cjs');
-const FORK = 'alexalok/opencodex', ID = 1361227105;
+const FORK = 'alexalok/opencodex', ID = 1361227105, RELEASE_OWNER = 'alexalok';
 const SHA = /^[0-9a-f]{40}$/;
 const BRANCH = /^releases\/v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 function must(value, message) { if (!value) throw Error(message); }
@@ -33,17 +33,31 @@ async function registry() {
   const response = await fetch('https://registry.npmjs.org/%40bitkyc08%2Fopencodex',{redirect:'error',signal:AbortSignal.timeout(15000)});
   must(response.ok,'npm registry lookup failed'); return response.json();
 }
-function source(branch, candidate, read = api) {
+// This policy belongs to the trusted dev checkout, never a candidate-controlled roster.
+function assertReleaseAuthority(authority) {
+  must(authority?.actor === RELEASE_OWNER && authority?.triggeringActor === RELEASE_OWNER,
+    'fork release dispatch and rerun require owner alexalok');
+}
+function currentAuthority() { return {actor:process.env.GITHUB_ACTOR,triggeringActor:process.env.GITHUB_TRIGGERING_ACTOR}; }
+function ownerUser(user) { return user?.login === RELEASE_OWNER && user?.type === 'User'; }
+function source(branch, candidate, read = api, authority = currentAuthority()) {
+  assertReleaseAuthority(authority);
   const base = validateSelection(branch,candidate);
   const repo = read(`repos/${FORK}`); must(repo.id === ID && repo.full_name === FORK,'fork identity mismatch');
   const ref = read(`repos/${FORK}/git/ref/heads/${branch}`);
   must(ref.object?.type === 'commit' && ref.object.sha === candidate,'release branch moved or source is not its exact tip');
   const prs = read(`repos/${FORK}/commits/${candidate}/pulls?per_page=100`);
-  must(prs.some(pr => pr.merged_at && pr.merge_commit_sha === candidate && pr.base?.ref === branch && pr.base?.repo?.id === ID),'source must be a merged PR commit on selected release branch');
+  const matches = pr => pr.merged_at && pr.merge_commit_sha === candidate && pr.base?.ref === branch && pr.base?.repo?.id === ID;
+  const selected = prs.find(pr => matches(pr) && Number.isSafeInteger(pr.number) && pr.number > 0);
+  must(selected,'source must be a merged PR commit on selected release branch');
+  // Commit-associated PR summaries need not include merged_by. Read the authoritative detail.
+  const detail = read(`repos/${FORK}/pulls/${selected.number}`);
+  must(detail.number === selected.number && matches(detail) && ownerUser(detail.merged_by),
+    'release source PR must be merged by owner alexalok');
   return base;
 }
-async function evidence(branch,candidate,kind,read = api,policies = require('./release-evidence-policy.json')) {
-  source(branch,candidate,read);
+async function evidence(branch,candidate,kind,read = api,policies = require('./release-evidence-policy.json'),authority = currentAuthority()) {
+  source(branch,candidate,read,authority);
   const filename = kind === 'service' ? 'service-lifecycle.yml' : 'ci.yml';
   const wf = read(`repos/${FORK}/actions/workflows/${filename}`);
   must(wf.path === `.github/workflows/${filename}` && Number.isSafeInteger(wf.id),'workflow identity mismatch');
@@ -56,6 +70,7 @@ async function evidence(branch,candidate,kind,read = api,policies = require('./r
     if (run.repository?.id !== ID || run.head_repository?.id !== ID || run.workflow_id !== wf.id || run.event !== 'workflow_dispatch' || run.status !== 'completed' || run.conclusion !== 'success') continue;
     if (kind === 'ci' && (run.head_sha !== candidate || run.head_branch !== branch || run.display_title !== `ocx-ci-v1 lane=all sha=${candidate}`)) continue;
     if (kind === 'service' && run.head_branch !== 'dev') continue;
+    if (!ownerUser(run.actor) || !ownerUser(run.triggering_actor)) continue;
     try { await assertPolicy(async path => read(`repos/${FORK}${path}`),run,kind,policies); }
     catch (error) {
       // An unapproved run is not evidence; transport/incomplete/unknown failures are fatal.
@@ -66,7 +81,7 @@ async function evidence(branch,candidate,kind,read = api,policies = require('./r
     must(jobs.total_count <= 100 && jobs.jobs.length === jobs.total_count,'incomplete fork jobs');
     try { validateJobs(jobs.jobs,kind === 'ci' ? CI_JOBS : serviceJobs(candidate)); }
     catch { continue; }
-    source(branch,candidate,read);
+    source(branch,candidate,read,authority);
     return {sourceSha:candidate,ciRunId:run.id};
   }
   throw Error(`no qualifying fork ${kind} evidence`);
@@ -98,4 +113,4 @@ async function main(args) {
   throw Error('unknown fork release operation');
 }
 if (require.main === module) main(process.argv.slice(2)).then(result => process.stdout.write(JSON.stringify(result)+'\n')).catch(error => { console.error(`fork release: ${error.message}`); process.exitCode=1; });
-module.exports = {validateOrdering,validateSelection,validateAge,validateVersion,source,evidence,history};
+module.exports = {assertReleaseAuthority,validateOrdering,validateSelection,validateAge,validateVersion,source,evidence,history};

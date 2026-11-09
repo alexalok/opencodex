@@ -203,9 +203,9 @@
     "kind": "service",
     "version": 1,
     "files": {
-      ".github/workflows/service-lifecycle.yml": "2de9ec6a05908c25fa6055a7fb5ce1313f13a2e0",
+      ".github/workflows/service-lifecycle.yml": "6d0a85228d4653e6c293a7a15e6d42c0e18d0a2d",
       ".github/actions/setup-project-bun/action.yml": "cf28f6f9d4385d69784f4e3610914f6952ce789d",
-      ".github/scripts/fork-release.cjs": "7b9af3c2a32aca0dea750bbe3b15910d39109c13",
+      ".github/scripts/fork-release.cjs": "06a20ed4bd451205a73b01afc01659ad0432811b",
       ".github/scripts/release-history.cjs": "7e2c2f3eea3bcf04492d3d36ae7265cad7cfa088"
     }
   },

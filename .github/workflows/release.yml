@@ -188,6 +188,7 @@ jobs:
   # while a run packages (a hand-pushed tag, a first local publish), so `publish` repeats every
   # one of these checks immediately before `npm publish`.
   preflight:
+    if: ${{ (github.repository != 'alexalok/opencodex' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok')) }}
     name: release preflight
     needs: validate-dispatch
     runs-on: ubuntu-latest
@@ -233,7 +234,7 @@ jobs:
 
   package-standalone:
     needs: [validate-dispatch, preflight]
-    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev' }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev') && (github.repository != 'alexalok/opencodex' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok')) }}
     strategy:
       fail-fast: false
       matrix:
@@ -448,7 +449,7 @@ jobs:
 
   package-desktop:
     needs: [validate-dispatch, preflight]
-    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev' }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev') && (github.repository != 'alexalok/opencodex' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok')) }}
     strategy:
       fail-fast: false
       matrix:
@@ -948,6 +949,7 @@ jobs:
 
   # Candidate code and npm lifecycle scripts run only in this read-only job.
   package-npm:
+    if: ${{ (github.repository != 'alexalok/opencodex' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok')) }}
     needs: [validate-dispatch, preflight]
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -1026,6 +1028,7 @@ jobs:
 
   # A fresh runner computes the receipt; candidate code cannot execute in this job.
   verify-npm:
+    if: ${{ (github.repository != 'alexalok/opencodex' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok')) }}
     needs: [validate-dispatch, package-npm]
     runs-on: ubuntu-latest
     permissions:
@@ -1176,6 +1179,7 @@ jobs:
   # verifying after the fact. Runs on dry-run too: a dry run must prove the same
   # chain a real release will rely on.
   verify-release:
+    if: ${{ (github.repository != 'alexalok/opencodex' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok')) }}
     runs-on: ubuntu-latest
     needs: [validate-dispatch, package-standalone, package-desktop]
     timeout-minutes: 10
@@ -1274,7 +1278,7 @@ jobs:
   attach-release:
     runs-on: ubuntu-latest
     needs: [validate-dispatch, publish, verify-release]
-    if: ${{ inputs.dry-run != true }}
+    if: ${{ (inputs.dry-run != true) && (github.repository != 'alexalok/opencodex' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok')) }}
     timeout-minutes: 10
     permissions:
       contents: write
@@ -1421,7 +1425,7 @@ jobs:
   release-outcomes:
     name: release outcomes
     needs: [validate-dispatch, publish, attach-release]
-    if: ${{ always() && needs.validate-dispatch.result == 'success' && inputs.dry-run != true }}
+    if: ${{ (always() && needs.validate-dispatch.result == 'success' && inputs.dry-run != true) && (github.repository != 'alexalok/opencodex' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -1449,7 +1453,7 @@ jobs:
 
   publish:
     needs: [validate-dispatch, verify-release, verify-npm]
-    if: ${{ inputs.dry-run != true }}
+    if: ${{ (inputs.dry-run != true) && (github.repository != 'alexalok/opencodex' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:

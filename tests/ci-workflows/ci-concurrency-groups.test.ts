@@ -144,8 +144,8 @@ test("cross-platform workflows restrict dispatch to dev and explicit fork releas
       for (const id of ["macos-launchd", "windows-schtasks"]) {
         expect(parsed.jobs[id]?.needs).toBe("validate-source");
         expect(parsed.jobs[id]?.if).toBe(id === "macos-launchd"
-          ? "github.event_name != 'pull_request' && (github.repository != 'alexalok/opencodex' || github.event_name == 'workflow_dispatch')"
-          : "github.event_name != 'pull_request'");
+          ? "(github.event_name != 'pull_request' && (github.repository != 'alexalok/opencodex' || github.event_name == 'workflow_dispatch')) && (github.repository != 'alexalok/opencodex' || github.event_name != 'workflow_dispatch' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok'))"
+          : "(github.event_name != 'pull_request') && (github.repository != 'alexalok/opencodex' || github.event_name != 'workflow_dispatch' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok'))");
       }
     }
   }
