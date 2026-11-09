@@ -220,10 +220,10 @@ import { withCallerSessionIdentity } from "../caller-session-identity";
 import { agentAssertionUnsupportedResponse, hasAgentAssertionAuthorization } from "../../lib/authorization-scheme";
 import { runTurnStateCallerScope } from "../turn-state-handles";
 
-export type ServerIngress = "public" | "unauthenticated-loopback" | "hub-management" | "claude-intercept" | "hub-link";
+export type ServerIngress = "public" | "unauthenticated-loopback" | "hub-management" | "claude-intercept" | "hub-link" | "local-control";
 
 export function trustedLoopbackForIngress(ingress: ServerIngress, hostname: string): boolean {
-  return ingress === "unauthenticated-loopback" // IPv4 loopback aliases are local for management only; API keys still apply.
+  return ingress === "unauthenticated-loopback" || ingress === "local-control" // IPv4 loopback aliases are local for management only; API keys still apply.
     || (ingress === "public" && (isLoopbackHostname(hostname) || /^127(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/.test(hostname.trim())));
 }
 
@@ -378,7 +378,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
       // Anthropic credentials, not opencodex admission tokens — so it takes the loopback view too.
       const policy: RequestPolicyView = ingress === "hub-link"
         ? linkPolicyView!
-        : ingress === "unauthenticated-loopback" || ingress === "claude-intercept"
+        : ingress === "unauthenticated-loopback" || ingress === "claude-intercept" || ingress === "local-control"
           ? loopbackPolicy()
           : config;
       // Codex runtime agent assertion_only (Authorization: AgentAssertion) is refused before
@@ -1871,6 +1871,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
               liveUpstreamProtocols: audio?.protocols,
               liveValidateFrame: audio?.validateFrame,
               liveMaxSessionMs: audio?.maxSessionMs,
+              liveFinalizationMs: audio?.finalizationMs,
               liveFinish: finish,
               liveAbortSignal: audioController?.signal,
               livePending: [],
