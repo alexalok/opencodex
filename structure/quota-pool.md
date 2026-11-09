@@ -60,9 +60,12 @@ computes no number itself, so every value it shows is here:
   estimate `aggregateCodexPoolCapacity` reports; for a held report it is the report's aggregation,
   else the whole used share at the report's reset;
 - `blocked` while the unscoped `availability` window exists (for a report: any exhausted unscoped
-  window), with `recoversAt` and the window (`5h`, `weekly` or `other`) whose reset is that
-  recovery; `resetCredits`, the sum over the accounts;
-- per account: display `name` (alias, else email, else log label; this read is management-only),
+  window), with `recoversAt` and the window (`5h`, `weekly` or `other`) that holds it:
+  `pooledBlockHolder` takes it from the same live eligible evidence as `availability`, the
+  last-resetting block of the account that recovers first; `resetCredits`, the sum over the accounts;
+- per account: display `name` (alias, else email, else log label). Emails follow
+  `privacy.maskEmails` like every other account surface: Codex rows arrive projected from the
+  account list, and OAuth rows go through `projectEmail` here,
   `plan`, `units` (the capacity weight above, Plus = 1), `state`, its own `5h` and `weekly`
   windows, and `resetCredits` (`count` from the stored WHAM `available_count`).
 
@@ -72,11 +75,14 @@ block, or account rows.
 Reset-credit expiry is not part of WHAM usage. `src/codex/reset-credit-expiry-memo.ts` remembers
 the soonest expiry from every reset-credit inspect this process makes (dashboard, auto-redeemer,
 tray), valid while its count matches the stored count and for `RESET_CREDIT_EXPIRY_MEMO_TTL_MS`
-(12 hours). After answering, the tray read may start a background inspect for a Codex account
-whose memo is missing or stale: one account at a time, at most once per
-`RESET_CREDIT_INSPECT_RETRY_MS` (1 hour) per account, outside the passive read. The response never
-waits on it. `tests/usage/quota-tray.test.ts` covers the shape, recovery parity with the dashboard
-aggregate, and the inspect bounds.
+(12 hours). The native main login's memo is also bound to the main identity generation its inspect
+authenticated under, so a different signed-in account never inherits it. After answering, the tray
+read may start a background inspect for a Codex account whose memo is missing or stale: one
+account at a time, at most once per `RESET_CREDIT_INSPECT_RETRY_MS` (1 hour) per account, outside
+the passive read. A caller that is already passive (a Remote Link Child's relayed read) starts
+none. The response never waits on it. `tests/usage/quota-tray.test.ts` covers the shape, recovery
+parity with the dashboard aggregate, the block holder, masking, the memo identity binding, and the
+inspect bounds.
 
 ## Pooled windows
 
