@@ -14,9 +14,8 @@ if (process.argv[4] === "image-replay") {
   await emit({ type: "system", subtype: "init", mcp_servers: [{ name: "opencodex", status: "connected" }] });
   await emit({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: JSON.stringify(frame.message.content) } } });
   await emit({ type: "result", subtype: "success", usage: { input_tokens: 2, output_tokens: 4 } });
-  // Large replay frames must drain before terminating the synthetic child.
-  process.exit(0);
-}
+  // Natural exit lets Bun drain its pipe even after write callbacks have fired.
+} else {
 const current = frame.message.content.at(-1).text as string;
 const mcpPath = args[args.indexOf("--mcp-config") + 1];
 const mcp = mcpPath ? JSON.parse(readFileSync(mcpPath, "utf8")) : undefined;
@@ -39,4 +38,6 @@ if (current.includes("WAIT_FOR_ABORT")) {
   emit({ type: "stream_event", event: { type: "message_stop" } });
   // Capture-only CLI waits for the host; the adapter must terminate this owned child.
   setInterval(() => {}, 1000);
+}
+
 }

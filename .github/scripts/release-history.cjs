@@ -395,5 +395,5 @@ async function main(args) {
   must(verifyEd25519Receipt(readFileSync(first), readFileSync(second), readFileSync(third)), 'receipt signature invalid');
   process.stdout.write('signature valid; publication evidence has not been checked\n');
 }
-module.exports = {compareVersions, reconcileHistory, verifyExactResume, verifyEd25519Receipt, createReceiptVerifier, collectPublicationHistory, verifyLegacyTreeEvidence};
+module.exports = {compareVersions, reconcileHistory, verifyExactResume, verifyEd25519Receipt, createReceiptVerifier, collectPublicationHistory, verifyLegacyTreeEvidence, LEGACY_MAPPINGS, LEGACY_BASELINE};
 if (require.main === module) main(process.argv.slice(2)).catch(error => { process.stderr.write(`release history: ${error.message}\n`); process.exitCode = 1; });

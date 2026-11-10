@@ -495,10 +495,14 @@ test("synthetic CLI drains large replay frames before exiting with a slow reader
   });
   try {
     child.stdin.end(JSON.stringify({ message: { content: [{ type: "text", text }] } }));
-    // Let the child fill its pipe before consuming; process.exit used to lose queued bytes.
-    await Bun.sleep(200);
     const chunks: Buffer[] = [];
-    for await (const chunk of child.stdout) chunks.push(Buffer.from(chunk));
+    child.stdout.on("data", chunk => {
+      chunks.push(Buffer.from(chunk));
+      if (chunks.length === 1) {
+        child.stdout.pause();
+        setTimeout(() => child.stdout.resume(), 200);
+      }
+    });
     expect(await closed).toBe(0);
     const frames = Buffer.concat(chunks).toString().trim().split("\n").map(line => JSON.parse(line));
     expect(frames).toHaveLength(3);
