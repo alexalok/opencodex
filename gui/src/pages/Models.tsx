@@ -78,7 +78,7 @@ import {
   freeOnlyInForce,
   modelPricingKnown,
   REASONING_EFFORT_LEVELS,
-  routedModelOptions,
+  autoReviewModelOptions,
   parseContextWindowDraft,
   type ModelPresetView,
   type ModelRow,
@@ -93,6 +93,7 @@ import { ShadowCallSettingsRow } from "./shadow-call-settings-row";
 import { ModelCatalogDelivery } from "./models-catalog-state";
 import { CustomModelsSummary, InfoHint, ModelsSettingsPanel, SettingsRow } from "./models-settings-panel";
 import { modelsSettingsSummary } from "./models-settings-summary";
+import { AutoReviewControls } from "./auto-review-controls";
 import { useAutoReviewSettings } from "./use-auto-review-settings";
 import { useShadowCallSettings } from "./use-shadow-call-settings";
 
@@ -467,8 +468,8 @@ export default function Models({ apiBase, restartEpoch = 0, connected = false, c
   }, [models, shadowCall?.model, shadowCall?.sourceModels, shadowModelOptions]);
 
   const autoReviewOptions = useMemo(
-    () => [{ value: "", label: "—" }, ...routedModelOptions(shadowModelOptions, models, autoReview?.model)],
-    [models, shadowModelOptions, autoReview?.model],
+    () => [{ value: "", label: "—" }, ...autoReviewModelOptions(shadowModelOptions, autoReview?.model)],
+    [shadowModelOptions, autoReview?.model],
   );
 
   const loadV2 = useCallback(async () => {
@@ -1946,12 +1947,7 @@ export default function Models({ apiBase, restartEpoch = 0, connected = false, c
         </SettingsRow>
         <ShadowCallSettingsRow shadowCall={shadowCall} saving={shadowCallSaving} modelOptions={shadowCallOptions} onSave={patch => void saveShadowCall(patch)} />
 
-        <SettingsRow label={t("models.autoReviewOverride")} hint={<Tooltip content={t("models.autoReviewOverrideHint")} side="top" maxWidth={320}><span style={{ cursor: "help" }} aria-label={t("models.autoReviewOverrideHint")}>ⓘ</span></Tooltip>} busy={!autoReview}>
-          <Switch on={autoReview?.enabled ?? false} onClick={() => void saveAutoReview({ enabled: !autoReview?.enabled })} disabled={!autoReview || autoReviewSaving} label={t("models.autoReviewOverride")} />
-          <div className="models-shadow-model-slot">
-            <Select value={autoReview?.model ?? ""} options={autoReviewOptions} onChange={v => void saveAutoReview({ model: v })} disabled={!autoReview || autoReviewSaving || !autoReview.enabled} label={t("models.autoReviewOverride")} />
-          </div>
-        </SettingsRow>
+        <AutoReviewControls data={autoReview} saving={autoReviewSaving} options={autoReviewOptions} save={saveAutoReview} t={t} />
 
         {(v2Loading || v2) && (
           <SettingsRow label={t("models.v2Label")}>
@@ -2532,7 +2528,7 @@ export default function Models({ apiBase, restartEpoch = 0, connected = false, c
         warn={!!(v2?.enabled && v2.agentsMaxThreadsConflict) || v2Note !== "" || pickerResource.state.showError}
         summary={modelsSettingsSummary(t, { multiAgentMode: v2?.multiAgentMode, v2Threads: v2ThreadsChildren, keepNativeOnV1: v2?.keepNativeChatGptOnV1 === true,
           shadowEnabled: shadowCall?.enabled === true, shadowModel: shadowCall?.model, windowOn: allCapped, windowValue: contextCapValue, newModelsOff: modelDiscovery?.policy === "off", aliasesOn: aliases.defaults.global,
-          autoReviewEnabled: autoReview?.enabled === true, autoReviewModel: autoReview?.model,
+          autoReviewEnabled: autoReview?.enabled === true, autoReviewModel: autoReview?.model, autoReviewEffort: autoReview?.reasoningEffort,
           pickerMode: modelPickerOrderMode(pickerSettings?.pickerAvailable ?? [], pickerSettings?.pickerOrder ?? [], pickerSettings?.pickerOrderMode) })}>
         {controlsBlock}
       </ModelsSettingsPanel>

@@ -216,8 +216,8 @@ import { agentAssertionUnsupportedResponse, hasAgentAssertionAuthorization } fro
 export type ServerIngress = "public" | "unauthenticated-loopback" | "hub-management" | "claude-intercept" | "hub-link";
 
 export function trustedLoopbackForIngress(ingress: ServerIngress, hostname: string): boolean {
-  return ingress === "unauthenticated-loopback"
-    || (ingress === "public" && isLoopbackHostname(hostname));
+  return ingress === "unauthenticated-loopback" // IPv4 loopback aliases are local for management only; API keys still apply.
+    || (ingress === "public" && (isLoopbackHostname(hostname) || /^127(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/.test(hostname.trim())));
 }
 
 /**

@@ -197,6 +197,8 @@ export interface OcxParsedRequest {
    * route is known.
    */
   _memoryModelPhase?: "extract" | "consolidation";
+  /** Validated per-request Codex approval-review marker, never inferred from model/prompt. */
+  _approvalReviewRequest?: boolean;
   /**
    * True when the current request newly introduced a stored compaction summary/marker. Historical
    * markers restored by previous_response_id expansion were already acknowledged and do not reset

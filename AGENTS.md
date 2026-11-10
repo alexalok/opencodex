@@ -2,6 +2,51 @@
 
 Guidance for AI agents (and humans) working on or reviewing this repository.
 
+## Git workflow for alexalok/opencodex
+
+These rules govern this repository and take precedence over the upstream branch
+and promotion policy reproduced below. There is no separate stable integration
+line: this repository has current `dev` and versioned backports.
+
+- Clone the fork using `git clone --branch dev --single-branch` with
+  `https://github.com/alexalok/opencodex.git`. Never clone, create, or check out a
+  `main` branch in this fork. `dev` is the default branch.
+- All development and maintenance changes land through pull requests targeting
+  this fork's `dev`; never push commits directly to `dev`.
+- Before merging any PR, fetch upstream `lidge-jun/opencodex`'s `dev` and ensure
+  it is an ancestor of fork `dev`. If it is not, integrate the upstream sync
+  through a PR first. The sync PR itself must include the current upstream tip;
+  preserve that ancestry with a merge commit when integrating a sync PR.
+- For a backport, create `releases/vX.Y.Z` from the selected upstream release
+  tag and `backports/vX.Y.Z/<feature_name>` from that release branch. Git branch
+  names have no leading slash. Backport PRs target that `releases/vX.Y.Z`
+  branch; this is the only exception to the `dev` target rule.
+- Increase the package patch version for each backported feature and update
+  the version mirrors together. Keep the release branch name fixed: for example,
+  backports to `releases/v2.90.0` produce `2.90.1`, then `2.90.2`, on that same
+  branch. Record the source PR or commits and preserve contributor attribution.
+- Local installations must be built from a merged commit on a `releases/*`
+  branch. Do not install from `dev` or an unmerged feature branch. Select the
+  newest published, non-prerelease upstream release at least seven full days old
+  when starting a new local installation line. Preserve configuration and a
+  verified rollback path during upgrades.
+- Keep `dev`, `alex/*`, and active `releases/*` branches. Delete merged
+  `backports/*` branches after their commits are retained on the release line.
+- Fork releases publish only GitHub releases and verified assets. Never publish npm packages or change npm dist-tags.
+- Do not open upstream PRs unless the user explicitly requests one. Any such
+  PR must target upstream `dev` only; never upstream `main` or `preview`.
+- Hosted macOS CI is off in this fork: pull requests, pushes and the nightly
+  schedule skip every `macos-latest` job and matrix leg. Run macOS validation
+  on demand with a manual `workflow_dispatch`. Keep the
+  `github.repository != 'alexalok/opencodex'` gates when syncing upstream
+  workflow changes; this overrides the upstream macOS coverage rule in
+  `.github/AGENTS.md` for automatic runs only.
+
+The fork owner's explicit integration request authorizes merging fork PRs after
+validation. It does not waive unresolved findings or security review. GitHub
+branch protection must be checked separately; inherited upstream descriptions
+do not prove that equivalent protection is configured on this fork.
+
 ## What this project is
 
 opencodex (`ocx`) is a universal provider proxy for OpenAI Codex and Claude Code:
@@ -394,6 +439,9 @@ than nudged.
 
 ## Branch policy
 
+The following describes **upstream**. For `alexalok/opencodex`, use the fork
+workflow above, including its prohibition on `main` and its backport PR targets.
+
 - `dev` — the single integration branch and the target for every pull request.
 - `main` — release branch. It only moves by maintainer-controlled promotion
   from `dev` (releases, docs deploys). Do not open feature PRs against `main`.
@@ -481,3 +529,49 @@ reviewers (Codex, CodeRabbit).
   keep translated locales from contradicting the English source).
 - **Privacy:** `bun run privacy:scan` must stay green; never introduce logging
   of request bodies, API keys, or account identifiers.
+
+## Fork release source and external review
+
+For `alexalok/opencodex`, dispatch the trusted `dev` revision of `release.yml`
+with an explicit `release-branch`, exact `expected-sha`, and `version`. This
+supersedes dispatching the workflow itself from a release branch. The source
+must be the exact current tip of `releases/vX.Y.Z` and a merged PR commit on
+that branch. The authorized fork release accounts are owner `alexalok` and owner-authorized
+`jack-o-mania`: both the original dispatch actor and rerun actor must be one of
+these accounts, and the source PR must have been merged by one of them. Writers, self-approved PRs, upstream roster
+membership and repository admin roles do not substitute for this authorization.
+The guard reads full PR merger metadata from GitHub under trusted `dev` policy;
+candidate-controlled rosters never grant authority. Qualification evidence also
+requires authorized dispatch/rerun identities. Candidate execution and publication
+jobs independently gate reruns before accessing signing credentials, including
+dry runs. Runtime source never comes from current `dev`. Version mirrors
+remain committed on the release branch and each backport increases its patch;
+the workflow must not derive a newer upstream base or silently change that version.
+
+Select the highest published stable upstream base available for at least 168
+hours, using the later GitHub/npm publication time. The guard verifies the
+selected base's age, upstream-tag ancestry, and stable patch line. The operator
+must record highest-eligible-base selection and individually justified backports.
+The fork publishes GitHub releases and verified standalone/desktop assets only.
+It never publishes npm packages or changes npm dist-tags. Fork ordering considers
+only release-source ancestors; duplicate GitHub tags remain forbidden. npm is
+read only to establish the upstream base publication date, never to constrain
+the fork version against upstream `latest`.
+
+Fork qualification runs only on disposable GitHub-hosted runners; do not route
+release-source code to persistent self-hosted machines. Repository administrators
+must enforce runner access outside mutable workflow files as well.
+
+Backport the reviewed CI tooling when necessary and run manual `ci.yml` with
+`lane=all` from the exact merged release source. Evidence must match reviewed
+policy fingerprints. Service evidence is manually dispatched from trusted `dev`
+with the same source SHA and `release-branch`. Hosted macOS stays excluded from
+automatic runs; release qualification requires the complete manual evidence.
+
+Security review is performed externally through Codex Security Cloud. Record
+review reference and reviewed SHA before merge, resolve applicable findings, and
+do not substitute local tests or agent review. Publication hold remains unchanged.
+Fork resume is refused until a separately reviewed GitHub receipt/provenance policy
+is available. A partial tag or draft publication requires operator recovery; do
+not delete or overwrite it automatically. The shared workflow skips all npm jobs
+for this fork and publishes only after verifying the asset bundle.

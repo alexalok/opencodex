@@ -398,25 +398,17 @@ respawn runs the replaced files at the same path, and refuses while that version
 
 ## Release workflow
 
-Package release is npm-focused. `package.json` exposes `opencodex` and `ocx`, `prepublishOnly` runs
-typecheck and GUI build. `scripts/release.ts` accepts either an explicit version or
-`--bump patch|minor|major`; the stable and preview channels use separate resolvers in
-`scripts/version-line.ts`. It runs local typecheck, tests on the pin selected by `scripts/lib/test-runner-bun.ts`, and
-`bun run privacy:scan` before the version bump, commit/push, Cross-platform CI wait, and GitHub
-Release workflow dispatch. Docs publishing is separate from npm release publishing.
-
-The version lives in four files, and every path that moves it moves all four:
+Upstream package release is npm-focused. `.github/workflows/release.yml` resolves a qualifying exact
+`dev` source using the trusted workflow revision, derives the version and stamps the four version
+sources in temporary build checkouts using `scripts/release-version-sources.ts`. The sources are
 `package.json`, `desktop/src-tauri/tauri.conf.json`, `desktop/src-tauri/Cargo.toml`, and the
-`opencodex-desktop` entry of `desktop/src-tauri/Cargo.lock`. The desktop build reads its version
-from the Tauri and Cargo files (the widget plist inherits it) while the updater manifest is derived
-from the dispatch input, so a `package.json`-only move ships an app that reports the previous
-version under a manifest naming the new one, and the updater re-offers that release forever.
-`scripts/release-version-sources.ts` owns the list and the one-line rewrite of each file.
-`scripts/release.ts` and `scripts/bump-dev-version.ts` rewrite through it, `release.yml` runs its
-`check` in `preflight` and `package-desktop` before anything is built and again in `publish`, and
-`dev-version-bump.yml` stages exactly those four paths and refuses a reused bump branch that
-touches anything else. `tests/ci-workflows/release-version-sources.test.ts` fails on drift in the
-working tree and pins that wiring.
+`opencodex-desktop` entry in `desktop/src-tauri/Cargo.lock`. The new path remains pre-cutover:
+a real publication or resume requires the repository variable `OCX_DEV_RELEASE_PUBLISH_ENABLED`
+to equal `true`. Independent review of the legacy history mapping, security review, real dry-run
+evidence and settings must be resolved before cutover; this text does not attest those gates.
+Docs publishing is separate. Dispatch inputs are `tag` (`latest` or `preview`), `dry-run`
+(default `true`), `expected-sha`, `version`, `release-branch` and `resume-after-npm-publish`; `scripts/release.ts`
+dispatches ordinary upstream runs only, so an upstream resume is dispatched by hand. For `alexalok/opencodex`, `release-branch` is mandatory and names the merged `releases/vX.Y.Z` source; `expected-sha` and `version` must match its exact tip and committed mirrors. Dispatch the trusted workflow from `dev`, preserve the publication hold and ancestry ordering checks, and do not use the inherited local helper. Fork resume remains refused pending a reviewed receipt policy; see [fork source selection](../../AGENTS.md#fork-release-source-and-external-review).
 
 The `package-standalone` job in `.github/workflows/release.yml` also builds Bun compiled
 `ocx` archives for Linux, macOS, and Windows, bundles `gui/dist`, smoke-tests `/healthz`, and
@@ -426,20 +418,55 @@ packages so its separate arm64 and x64 builds cannot silently reuse the hosted r
 copies those same pinned assets into Tauri resources. The loader and packaged-app proof are owned by the [desktop keyring contract](../desktop-shell.md#packaged-native-keyring-binding).
 `src/lib/standalone.ts` recognizes Bun's file-URL virtual roots after one URL decode, including Windows `%7EBUN`, and resolves runtime assets beside the real executable. Invalid/non-file URLs and double-encoded markers remain source paths; `tests/lib/standalone.test.ts` and `tests/service/standalone-service.test.ts` cover this distinction.
 
-Opening a release starts with the `dev` pre-move. Dispatch
-`.github/workflows/dev-version-bump.yml` with the intended version, merge the pull request it opens,
-then promote and release. A no-op is valid when `dev` already outranks the target. `release.yml`
-independently enforces that readiness condition and refuses publication if the pre-move is missing.
-The design and repair history live in `devlog/_fin/260904_release_version_line/`.
+The old `dev-version-bump.yml` pre-move is a legacy manual tool and is not required by the new
+source-selection path. The release workflow remains subject to the unresolved cutover gates above.
 
-Opening a preview for the next core ends the current patch line. After
-`vX.Y.0-preview.*` is tagged, a fix ships as part of `X.Y.0`, not as
-`X.(Y-1).(Z+1)`. `nextStableRelease` refuses such a patch bump, and the release workflow's global
-ordering gate prevents an explicit lower version from bypassing the resolver. This is a deliberate
-policy restriction, not preservation of an unused capability: at the design audit, 103 of 143 stable
-tags had `patch > 0`, and history includes `v2.6.24-preview.20260705` followed by `v2.6.23` and
-`v2.7.39-preview.20260724` followed by `v2.7.37`. Reopening parallel patch lines would require a
-separate channel-aware invariant and release-note baseline design.
+### History reconciliation
+
+Every run that is not a resume, dry runs included, runs `.github/scripts/release-history.cjs` from
+the trusted workflow revision in `verify-npm`, and `publish` repeats it immediately before
+`npm publish`. It requires complete Git history, reads npm history from the npm registry, reads
+`dev`, tags and releases with authenticated GitHub requests, and refuses if a second read differs.
+Existing npm history does not block a release. The gate reconciles it against the channel floors,
+the newest stable and the newest preview npm publications, and refuses when any of these fails:
+
+- Every npm publication from the older floor onward has a `gitHead`, a `v<version>` tag at that
+  commit and a published GitHub release whose prerelease flag matches its channel. Every published
+  GitHub release in that window has an npm version. An npm-only or partial publication stops for
+  manual reconciliation.
+- The candidate version exceeds every published npm version.
+- The candidate is reachable from `dev` and contains each floor's source. For the two fixed legacy
+  `2.99.0` floors, containment is replaced, not added to. Their registry `gitHead` and `v<version>`
+  tag must equal the fixed legacy SHA, the legacy baseline `0627a2c2` (2.100.0) must be an ancestor
+  of both the candidate and `dev`, and the legacy-to-baseline diff must be exactly the four version
+  sources with only the version string changed (`verifyLegacyTreeEvidence`).
+- The candidate reuses the newest floor's source only for a stable release after that preview.
+
+Publications older than the floor window take part in the identity, version and ordering checks
+only.
+
+### Resuming after npm publication
+
+A run that published npm and then failed before its GitHub release was complete is recovered by
+dispatching again with `resume-after-npm-publish: true`, the original `version`, the original
+source as `expected-sha` and `dry-run: false`. A resume missing any of these is refused. The resume
+is an operator attestation that this version was published from that source; registry and GitHub
+state are consistency checks, not provenance. The source still needs qualifying `dev` evidence.
+The run skips version derivation and history reconciliation, and refuses unless:
+
+- the exact version is on npm and its `gitHead` equals the supplied source
+  (`scripts/verify-release-resume.ts`);
+- `.github/scripts/release-resume.cjs` finds that version is the newest npm publication, with no
+  higher npm version or `v` tag and no dist-tag naming an unknown version, and two reads of the
+  registry, tags and release agree;
+- if a `v<version>` tag or GitHub release already exists, the tag points at the source and the
+  release matches the channel; the run creates a missing tag and a missing release as a draft;
+- assets already on the release carry the digests in this run's verification receipt. A published
+  release missing a verified asset is refused; otherwise missing assets are uploaded.
+
+A resume never runs `npm publish`, and only the resume path reuses an existing tag or GitHub
+release. If the version or source cannot be verified, the maintainer reconciles the partial
+publication by hand.
 
 ### Release notes
 
@@ -473,45 +500,12 @@ deterministic body whenever the maintainer skips it.
 
 ## Release metadata invariants
 
-Every npm release version must map cleanly across four surfaces:
-
-| Surface | Required state |
-| --- | --- |
-| `package.json` and the desktop version sources | `version` in `package.json`, `desktop/src-tauri/tauri.conf.json`, `desktop/src-tauri/Cargo.toml`, and the `opencodex-desktop` entry of `desktop/src-tauri/Cargo.lock` equals the release workflow `version` input. |
-| npm registry | `@bitkyc08/opencodex@<version>` does not exist before publish, then exists after publish with the requested dist-tag. |
-| Git tag | `v<version>` does not exist before publish, then points at the exact release commit. |
-| GitHub Release | `v<version>` does not exist before publish, then is created from the exact release commit. |
-
-Fresh publication refuses an existing npm version, Git tag or GitHub Release. An explicit
-resume skips npm publication only after the official registry returns a scalar, full-length
-`gitHead` exactly matching the audited `GITHUB_SHA`. `scripts/verify-release-resume.ts` validates
-that metadata; the publication step also requires the preflight's matching output before it
-acknowledges publication. Missing, malformed, unavailable or mismatched identity refuses resume.
-This checks registry source metadata, not cryptographic provenance. Fresh publication retains
-the existing OIDC trusted-publishing path.
-
-Two ordering checks run before publication. The version on `origin/dev` must strictly outrank the
-release target, proving the pre-move has landed. After a fresh tag fetch, the release target must also
-outrank the global release-tag set. The only equality exception is a dry run whose existing tag points
-at the exact `GITHUB_SHA`; a real publish never receives that exception.
-
-Do not force-move public version tags by default. If release metadata is already inconsistent, treat
-the version as consumed and publish the next unused patch version instead. Only rewrite a public tag
-after an explicit human decision that the public history rewrite is acceptable.
-
-Manual preflight checks when debugging a release:
-
-```bash
-npm view @bitkyc08/opencodex@<version> version
-git ls-remote origin refs/tags/v<version>
-gh release view v<version>
-```
-
-If any of these commands reports an existing artifact for the requested version, stop fresh
-publication. A previously acknowledged npm publication may use the explicit same-commit resume
-path above; it never republishes npm. Otherwise choose the next unused version that outranks the
-global tag set and release it through `scripts/release.ts`. A patch is not available once a higher-core
-preview has closed that stable patch line.
+A release version must agree across the four stamped version sources, npm package, tag and
+GitHub Release; tags are intended to point to the selected source SHA. Reconciliation covers the
+floor window in [History reconciliation](#history-reconciliation); do not infer that older npm
+publications or legacy tag ancestry have been reconciled. An npm version is published once.
+Recovery goes through the [attested resume](#resuming-after-npm-publication), never a republish,
+and public version tags are never force-moved.
 
 Cross-platform CI test lanes and release proof live in [Cross-platform CI](cross-platform-ci.md).
 
@@ -598,3 +592,4 @@ Universal macOS release builds install both aarch64-apple-darwin and x86_64-appl
 The existing `codex-routing`, `codex-auth-context` and `codex-quota-prime` tests cover [priority failback](../providers/openai-accounts.md#ongoing-priority-failback), including cache-default retention, stale evidence, main fencing and failed-attempt cadence.
 
 Automatic account exhaustion and recovery use the [spendable Codex credit evidence contract](../providers/openai-tiers.md#spendable-codex-credits), including independent freshness, upstream refusal, and reset-ticket separation.
+The `alexalok/opencodex` override is documented in [AGENTS.md](../../AGENTS.md#fork-release-source-and-external-review): trusted dev dispatch by `alexalok` or owner-authorized `jack-o-mania` (including reruns), explicit authorized-account-merged release-branch source, fixed patch mirrors, manual full-CI evidence, complete-tree (`--initial`) service qualification, ancestry ordering at both preflight and final publication, and GitHub-only publication. npm publishing and dist-tag changes are forbidden; exact-version GitHub tag conflicts remain global. Jobs calling the merged-source guard directly or via history/evidence grant only job-scoped `pull-requests: read`; publication retains its separate existing write scopes. `.github/scripts/fork-release.cjs` enforces source, availability, version and evidence checks. Fork evidence discovery skips only explicit unapproved-policy runs; API, incomplete-evidence and unknown errors remain fatal. Publication hold remains enabled; fork resume is refused pending a reviewed receipt policy.

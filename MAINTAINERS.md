@@ -1,5 +1,13 @@
 # Maintainers
 
+For `alexalok/opencodex`, the owner-directed fork workflow in
+[`AGENTS.md`](./AGENTS.md#git-workflow-for-alexalokopencodex) governs integration:
+PRs into current `dev`, upstream synchronization before merges, and PRs from
+`backports/vX.Y.Z/*` into `releases/vX.Y.Z`. There is no fork `main` or separate
+stable line. The owner may explicitly authorize fork integration after validation
+and security review. The upstream roster and promotion rules below describe
+`lidge-jun/opencodex`; they do not grant permissions in this fork.
+
 This document lists the people responsible for maintaining opencodex and defines the project's
 review and merge policy.
 
@@ -224,3 +232,49 @@ Adding or removing a maintainer requires:
 
 Private vulnerability reports are handled by the current maintainers according to
 [`SECURITY.md`](./SECURITY.md). Do not disclose secrets or exploit details in a public issue.
+
+## Fork release source and external review
+
+For `alexalok/opencodex`, dispatch the trusted `dev` revision of `release.yml`
+with an explicit `release-branch`, exact `expected-sha`, and `version`. This
+supersedes dispatching the workflow itself from a release branch. The source
+must be the exact current tip of `releases/vX.Y.Z` and a merged PR commit on
+that branch. The authorized fork release accounts are owner `alexalok` and owner-authorized
+`jack-o-mania`: both the original dispatch actor and rerun actor must be one of
+these accounts, and the source PR must have been merged by one of them. Writers, self-approved PRs, upstream roster
+membership and repository admin roles do not substitute for this authorization.
+The guard reads full PR merger metadata from GitHub under trusted `dev` policy;
+candidate-controlled rosters never grant authority. Qualification evidence also
+requires authorized dispatch/rerun identities. Candidate execution and publication
+jobs independently gate reruns before accessing signing credentials, including
+dry runs. Runtime source never comes from current `dev`. Version mirrors
+remain committed on the release branch and each backport increases its patch;
+the workflow must not derive a newer upstream base or silently change that version.
+
+Select the highest published stable upstream base available for at least 168
+hours, using the later GitHub/npm publication time. The guard verifies the
+selected base's age, upstream-tag ancestry, and stable patch line. The operator
+must record highest-eligible-base selection and individually justified backports.
+The fork publishes GitHub releases and verified standalone/desktop assets only.
+It never publishes npm packages or changes npm dist-tags. Fork ordering considers
+only release-source ancestors; duplicate GitHub tags remain forbidden. npm is
+read only to establish the upstream base publication date, never to constrain
+the fork version against upstream `latest`.
+
+Fork qualification runs only on disposable GitHub-hosted runners; do not route
+release-source code to persistent self-hosted machines. Repository administrators
+must enforce runner access outside mutable workflow files as well.
+
+Backport the reviewed CI tooling when necessary and run manual `ci.yml` with
+`lane=all` from the exact merged release source. Evidence must match reviewed
+policy fingerprints. Service evidence is manually dispatched from trusted `dev`
+with the same source SHA and `release-branch`. Hosted macOS stays excluded from
+automatic runs; release qualification requires the complete manual evidence.
+
+Security review is performed externally through Codex Security Cloud. Record
+review reference and reviewed SHA before merge, resolve applicable findings, and
+do not substitute local tests or agent review. Publication hold remains unchanged.
+Fork resume is refused until a separately reviewed GitHub receipt/provenance policy
+is available. A partial tag or draft publication requires operator recovery; do
+not delete or overwrite it automatically. The shared workflow skips all npm jobs
+for this fork and publishes only after verifying the asset bundle.
