@@ -137,6 +137,8 @@ remain open; a CI run alone does not authorize publication.
 
 The shared Responses path follows the [bounded multipart recovery contract](../subagents.md#multipart-encrypted-task-recovery); credential admission and retry policy remain unchanged.
 
-Heavy Linux jobs select the optional `lidge` self-hosted pool only on manual dispatch with `LIDGE_RUNNERS=on`. All pull requests remain GitHub-hosted regardless of branch ownership or author association; runner-group authorization remains an external control.
+Linux jobs always use GitHub-hosted Ubuntu runners. The Windows selector always returns `windows-latest`; no repository variable can select a persistent pool. Runner access outside these mutable workflow files remains an administrator responsibility.
 
 The gates job retrieves missing legacy release test objects from the canonical public upstream by three fixed commit SHAs before validating historical trees. Fetches create no branch or tag refs; unavailable or invalid evidence fails the job.
+
+Fork release qualification uses GitHub-hosted Linux, Windows and macOS runners. The checked-in workflow has no selectable persistent runner pool; runner access outside workflow code remains an administrator responsibility.
