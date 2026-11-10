@@ -450,6 +450,7 @@ describe("installed-artifact gate workflow", () => {
     on?: Record<string, unknown> | string[];
     permissions?: Record<string, string>;
     jobs?: Record<string, {
+      if?: string;
       "runs-on"?: string | string[];
       "timeout-minutes"?: number;
       steps?: Array<{ name?: string; uses?: string; run?: string; if?: string }>;
@@ -464,6 +465,13 @@ describe("installed-artifact gate workflow", () => {
   test("it is dispatch-only: a stateful GUI machine must never run because a push happened", () => {
     const triggers = Array.isArray(workflow.on) ? workflow.on : Object.keys(workflow.on ?? {});
     expect(triggers).toEqual(["workflow_dispatch"]);
+  });
+
+  test("macOS disable also prevents the manual self-hosted gate", () => {
+    const enabled = new Function("vars", "return (" + jobs.macos!.if + ");");
+    for (const flag of ["", "false", "true", "TRUE"]) {
+      expect(enabled({ OCX_DISABLE_MACOS_CI: flag.toLowerCase() })).toBe(flag.toLowerCase() !== "true");
+    }
   });
 
   test("least privilege: read-only contents and nothing else", () => {

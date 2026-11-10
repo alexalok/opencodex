@@ -89,10 +89,11 @@ describe("CI review lanes", () => {
     // Evaluate the checked-in expressions, rather than a second implementation of them.
     const enabled = (job: string, event: string, lane: string, scope = "true", packaging = "true", native = "true", windows = "false", smoke = "true") => {
       const condition = ci.jobs[job]!.if ?? "true";
-      const evaluate = new Function("github", "needs", `return (${condition});`);
+      const evaluate = new Function("github", "needs", "vars", `return (${condition});`);
       return evaluate(
         { event_name: event, event: { inputs: { lane } } },
         { changes: { outputs: { ci: scope, packaging, native, windows, docker: smoke, keyring: smoke } } },
+        { OCX_DISABLE_MACOS_CI: "false" },
       );
     };
     for (const [event, lane, windows, control] of [

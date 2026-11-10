@@ -55,6 +55,7 @@ concurrency:
 
 jobs:
   macos:
+    if: vars.OCX_DISABLE_MACOS_CI != 'true'
     runs-on: [self-hosted, opencodex-gate-macos]
     timeout-minutes: 60
     # Required-review environment: no run reaches the GUI runner without a maintainer

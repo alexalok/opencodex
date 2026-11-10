@@ -807,7 +807,32 @@ describe("release asset verification", () => {
     }
   });
 
-  test("runs the full pre-publication verification and writes the receipt", () => {
+  test("reads only recognized dynamic matrices and rejects malformed target tables", () => {
+    const standalone = { include: [{ target: "bun-linux-x64" }] };
+    const desktop = { include: [{ target: "x86_64-unknown-linux-gnu" }] };
+    const workflow = {
+      jobs: {
+        "validate-dispatch": { steps: [{ id: "platforms", env: {
+          STANDALONE_MATRIX: JSON.stringify(standalone), DESKTOP_MATRIX: JSON.stringify(desktop),
+        } }] },
+        "package-standalone": { strategy: { matrix: "${{ fromJSON(needs.validate-dispatch.outputs.standalone_matrix) }}" } },
+        "package-desktop": { strategy: { matrix: "${{ fromJSON(needs.validate-dispatch.outputs.desktop_matrix) }}" } },
+      },
+    };
+    expect(releaseMatrixTargets(JSON.stringify(workflow))).toEqual({
+      standaloneTargets: ["bun-linux-x64"], desktopTargets: ["x86_64-unknown-linux-gnu"],
+    });
+    workflow.jobs["package-desktop"].strategy.matrix = "${{ fromJSON(inputs.matrix) }}";
+    expect(() => releaseMatrixTargets(JSON.stringify(workflow))).toThrow();
+    for (const matrix of [{ include: [{ target: "valid" }, {}] }, { include: [] }, { include: [{ target: "" }] }]) {
+      expect(() => releaseMatrixTargets(JSON.stringify({ jobs: {
+        "package-standalone": { strategy: { matrix: standalone } },
+        "package-desktop": { strategy: { matrix } },
+      } }))).toThrow();
+    }
+  });
+
+  test.each([false, true])("verifies the complete selected release profile (excludeMacos=%s)", excludeMacos => {
     const root = temporaryDirectory();
     try {
       const { pubkeyText, signPayload } = makeMinisignKeypair("0123456789abcdef");
@@ -837,8 +862,9 @@ describe("release asset verification", () => {
         readFileSync(join(root, ".github", "workflows", "release.yml"), "utf8"),
       ).desktopTargets;
       const produced = [
-        ...standaloneTargets.map(target => standaloneArchiveName(VERSION, target)),
-        ...desktopTargets.flatMap(target =>
+        ...standaloneTargets.filter(target => !excludeMacos || !target.startsWith("bun-darwin-"))
+          .map(target => standaloneArchiveName(VERSION, target)),
+        ...desktopTargets.filter(target => !excludeMacos || !target.endsWith("-apple-darwin")).flatMap(target =>
           bundlesByTarget[target]!.map(bundle => `OpenCodex-${VERSION}-${bundle.name}`)),
       ];
       const updaterSuffixes = new Set(Object.values(platformFiles));
@@ -858,6 +884,7 @@ describe("release asset verification", () => {
         version: VERSION,
         desktopTargets,
         requireSignatures: true,
+        excludeMacos,
       });
       const oracle = produced.flatMap(name =>
         signed.has(name) ? [name, `${name}.sha256`, `${name}.sig`] : [name, `${name}.sha256`]);
@@ -865,6 +892,12 @@ describe("release asset verification", () => {
 
       const receiptPath = join(root, "verification", "receipt.json");
       const manifestPath = join(dir, "latest.json");
+      if (excludeMacos) {
+        expect(() => verifyReleaseAssets({ version: VERSION, dir, repo: "lidge-jun/opencodex",
+          sha: "fixture", repoRoot: root, requireSignatures: true })).toThrow(/Missing expected release assets/);
+        expect(() => buildUpdaterManifest({ version: VERSION, dir, repo: "lidge-jun/opencodex",
+          out: manifestPath, requireAll: true })).toThrow(/Missing signed updater platforms: darwin/);
+      }
       const receipt = verifyReleaseAssets({
         version: VERSION,
         dir,
@@ -874,6 +907,7 @@ describe("release asset verification", () => {
         manifestOut: manifestPath,
         receiptOut: receiptPath,
         requireSignatures: true,
+        excludeMacos,
       });
 
       expect(receipt.expectedFiles).toBe(expected.length);
@@ -882,7 +916,8 @@ describe("release asset verification", () => {
       expect(receipt.signaturesVerified).toBe(signed.size);
       // Same rule as the signed set: the platform list is the updater table's keys,
       // not a copy of them.
-      expect(receipt.manifestPlatforms).toEqual(Object.keys(platformFiles).sort());
+      expect(receipt.manifestPlatforms).toEqual(Object.keys(platformFiles)
+        .filter(platform => !excludeMacos || !platform.startsWith("darwin-")).sort());
       expect(JSON.parse(readFileSync(receiptPath, "utf8"))).toEqual(receipt);
 
       const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
@@ -890,6 +925,19 @@ describe("release asset verification", () => {
       };
       expect(manifest.platforms["linux-x86_64"]!.url)
         .toBe(`https://github.com/lidge-jun/opencodex/releases/download/v${VERSION}/OpenCodex-${VERSION}-linux-x86_64.AppImage`);
+
+      // Both profiles must verify bytes and signatures, not just count companions.
+      const windowsName = `OpenCodex-${VERSION}-windows-x64.msi`;
+      const windowsPath = join(dir, windowsName);
+      const original = readFileSync(windowsPath);
+      const verifySelected = () => verifyReleaseAssets({ version: VERSION, dir,
+        repo: "lidge-jun/opencodex", sha: "fixture", repoRoot: root,
+        requireSignatures: true, excludeMacos, manifestOut: manifestPath });
+      writeFileSync(windowsPath, "tampered bytes");
+      expect(verifySelected).toThrow(/Checksum mismatch/);
+      writeAsset(dir, windowsName, Buffer.from("tampered bytes"));
+      expect(verifySelected).toThrow(/Signature verification failed/);
+      writeAsset(dir, windowsName, original);
 
       // Anything beyond the expected set is refused rather than published.
       writeFileSync(join(dir, "stray.txt"), "stray");
@@ -901,8 +949,21 @@ describe("release asset verification", () => {
         repoRoot: root,
         manifestOut: manifestPath,
         requireSignatures: true,
+        excludeMacos,
       })).toThrow(/Unexpected files/);
       rmSync(join(dir, "stray.txt"));
+      if (excludeMacos) {
+        const mac = `OpenCodex-${VERSION}-macos.dmg`;
+        writeAsset(dir, mac, Buffer.from("unexpected mac payload"));
+        expect(() => verifyReleaseAssets({ version: VERSION, dir, repo: "lidge-jun/opencodex",
+          sha: "fixture", repoRoot: root, requireSignatures: true, excludeMacos,
+          manifestOut: manifestPath })).toThrow(/Unexpected files/);
+        rmSync(join(dir, mac));
+        rmSync(join(dir, `${mac}.sha256`));
+        rmSync(join(dir, `OpenCodex-${VERSION}-windows-x64.msi.sig`));
+        expect(() => buildUpdaterManifest({ version: VERSION, dir, repo: "lidge-jun/opencodex",
+          out: manifestPath, requireAll: true, excludeMacos })).toThrow(/windows-x86_64/);
+      }
 
       rmSync(join(dir, `OpenCodex-${VERSION}-windows-x64.msi`));
       expect(() => verifyReleaseAssets({
@@ -912,6 +973,7 @@ describe("release asset verification", () => {
         sha: "0123456789abcdef0123456789abcdef01234567",
         repoRoot: root,
         requireSignatures: true,
+        excludeMacos,
       })).toThrow(/Missing expected release assets/);
     } finally {
       rmSync(root, { recursive: true, force: true });

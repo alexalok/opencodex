@@ -30,6 +30,7 @@ export interface VerifyReleaseAssetsOptions {
   manifestOut?: string;
   receiptOut?: string;
   requireSignatures?: boolean;
+  excludeMacos?: boolean;
 }
 
 export interface ReleaseVerificationReceipt {
@@ -52,9 +53,11 @@ export function expectedReleaseAssets(options: {
   version: string;
   desktopTargets: string[];
   requireSignatures?: boolean;
+  excludeMacos?: boolean;
 }): string[] {
   const expected: string[] = [];
   for (const target of sharedStandaloneTargets) {
+    if (options.excludeMacos && target.startsWith("bun-darwin-")) continue;
     const archive = standaloneArchiveName(options.version, target);
     expected.push(archive, `${archive}.sha256`);
   }
@@ -62,6 +65,7 @@ export function expectedReleaseAssets(options: {
   for (const target of options.desktopTargets) {
     const bundles = bundlesByTarget[target];
     if (!bundles) throw new Error(`Unsupported desktop target in release matrix: ${target}`);
+    if (options.excludeMacos && target.endsWith("-apple-darwin")) continue;
     for (const bundle of bundles) {
       const asset = `OpenCodex-${options.version}-${bundle.name}`;
       expected.push(asset, `${asset}.sha256`);
@@ -78,18 +82,36 @@ export function releaseMatrixTargets(workflowText: string): {
   standaloneTargets: string[];
   desktopTargets: string[];
 } {
+  type Matrix = { include?: Array<{ target?: string }> };
   const workflow = Bun.YAML.parse(workflowText) as {
-    jobs?: Record<string, { strategy?: { matrix?: { include?: Array<{ target?: string }> } } }>;
+    jobs?: Record<string, {
+      strategy?: { matrix?: Matrix | string };
+      steps?: Array<{ id?: string; env?: Record<string, string> }>;
+    }>;
   };
-  const read = (job: string): string[] =>
-    (workflow.jobs?.[job]?.strategy?.matrix?.include ?? [])
-      .map(entry => entry.target)
-      .filter((target): target is string => typeof target === "string");
-  const standaloneTargets = read("package-standalone");
-  const desktopTargets = read("package-desktop");
-  if (standaloneTargets.length === 0 || desktopTargets.length === 0) {
-    throw new Error("release.yml packaging matrices are empty or unreadable");
-  }
+  const read = (job: string, output: string, env: string): string[] => {
+    let matrix = workflow.jobs?.[job]?.strategy?.matrix;
+    if (typeof matrix === "string") {
+      // Only this trusted workflow-owned selector is supported; never evaluate
+      // arbitrary expressions or infer the selected profile from missing files.
+      if (matrix !== `\${{ fromJSON(needs.validate-dispatch.outputs.${output}) }}`) {
+        throw new Error(`Unrecognized release matrix expression for ${job}`);
+      }
+      const selectors = workflow.jobs?.["validate-dispatch"]?.steps?.filter(step => step.id === "platforms");
+      const table = selectors?.length === 1 ? selectors[0]?.env?.[env] : undefined;
+      if (typeof table !== "string") throw new Error(`Missing release matrix table ${env}`);
+      matrix = JSON.parse(table) as Matrix;
+    }
+    if (!matrix || !Array.isArray(matrix.include) || matrix.include.length === 0
+      || matrix.include.some(entry => !entry || typeof entry.target !== "string" || !entry.target.trim())) {
+      throw new Error(`release.yml packaging matrix ${job} is empty or unreadable`);
+    }
+    const targets = matrix.include.map(entry => entry.target!);
+    if (new Set(targets).size !== targets.length) throw new Error(`Duplicate targets in ${job}`);
+    return targets;
+  };
+  const standaloneTargets = read("package-standalone", "standalone_matrix", "STANDALONE_MATRIX");
+  const desktopTargets = read("package-desktop", "desktop_matrix", "DESKTOP_MATRIX");
   return { standaloneTargets, desktopTargets };
 }
 
@@ -224,7 +246,8 @@ function parseBackManifest(manifestPath: string, options: VerifyReleaseAssetsOpt
     throw new Error(`Manifest version ${manifest.version} != ${options.version}`);
   }
   const platforms = Object.keys(manifest.platforms).sort();
-  const expectedPlatforms = Object.keys(platformFiles).sort();
+  const expectedPlatforms = Object.keys(platformFiles)
+    .filter(platform => !options.excludeMacos || !platform.startsWith("darwin-")).sort();
   if (JSON.stringify(platforms) !== JSON.stringify(expectedPlatforms)) {
     throw new Error(
       `Manifest platforms (${platforms.join(", ")}) do not match the updater platform set (${expectedPlatforms.join(", ")})`,
@@ -276,6 +299,7 @@ export function verifyReleaseAssets(options: VerifyReleaseAssetsOptions): Releas
     version: options.version,
     desktopTargets,
     requireSignatures: options.requireSignatures,
+    excludeMacos: options.excludeMacos,
   });
   const missing = expected.filter(name => !existsSync(join(dir, name)));
   if (missing.length > 0) {
@@ -305,6 +329,7 @@ export function verifyReleaseAssets(options: VerifyReleaseAssetsOptions): Releas
       repo: options.repo,
       out: options.manifestOut,
       requireAll: options.requireSignatures,
+      excludeMacos: options.excludeMacos,
     });
     manifestPlatforms = parseBackManifest(options.manifestOut, options);
   }
@@ -347,7 +372,7 @@ if (import.meta.main) {
   if (!version || !dir || !repo || !sha) {
     throw new Error(
       "Usage: verify-release-assets.ts --version <version> --dir <dir> --repo <owner/name> --sha <commit>"
-        + " [--manifest-out <file>] [--require-signatures] [--receipt-out <file>]",
+        + " [--manifest-out <file>] [--require-signatures] [--receipt-out <file>] [--exclude-macos]",
     );
   }
   const receipt = verifyReleaseAssets({
@@ -358,6 +383,7 @@ if (import.meta.main) {
     manifestOut: argument("--manifest-out"),
     receiptOut: argument("--receipt-out"),
     requireSignatures: Bun.argv.includes("--require-signatures"),
+    excludeMacos: Bun.argv.includes("--exclude-macos"),
   });
   console.log(
     `Verified ${receipt.expectedFiles} expected files, ${receipt.checksumsVerified} checksums,`
