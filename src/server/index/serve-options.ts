@@ -1,3 +1,4 @@
+import { trustedLoopbackForIngress, claudeInterceptRouteAllowed, type ServerIngress } from "./ingress-policy";
 import { messagesUnknownEndpointMessage } from "../../lib/messages-error-body";
 import type { Server, ServerWebSocket } from "bun";
 import { modelAliasIdPromoter } from "./model-alias-id";
@@ -28,7 +29,6 @@ import {
 } from "./startup-warnings";
 
 import { remoteWorkspaceEnabled } from "../../remote-control/workspace-activation";
-import { isClaudeInterceptedPath } from "../../claude/intercept/listener";
 import { markActivity } from "../../lib/sidecar-tracker";
 import { knownModelIdsForProvider } from "../../router";
 import {
@@ -98,7 +98,6 @@ import {
   isAllowedRequestOrigin,
   isAllowedManagementOrigin,
   isApiAuthRequired,
-  isLoopbackHostname,
   markTrustedHubManagementRequest,
   jsonResponse,
   admissionFields,
@@ -201,6 +200,7 @@ import {
   expandFastRow,
 } from "../fast-row";
 import type { OcxConfig } from "../../types";
+import { classifyUsageClient } from "../../usage/client";
 import type { PackageTreeIntegrityGuard } from "../../lib/package-tree-integrity";
 import type { ReadinessGate } from "../readiness";
 import type { WorkflowRefusalLog } from "../workflow-refusal";
@@ -219,21 +219,7 @@ import { withCallerSessionIdentity } from "../caller-session-identity";
 import { agentAssertionUnsupportedResponse, hasAgentAssertionAuthorization } from "../../lib/authorization-scheme";
 import { runTurnStateCallerScope } from "../turn-state-handles";
 
-export type ServerIngress = "public" | "unauthenticated-loopback" | "hub-management" | "claude-intercept" | "hub-link";
-
-export function trustedLoopbackForIngress(ingress: ServerIngress, hostname: string): boolean {
-  return ingress === "unauthenticated-loopback" // IPv4 loopback aliases are local for management only; API keys still apply.
-    || (ingress === "public" && (isLoopbackHostname(hostname) || /^127(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/.test(hostname.trim())));
-}
-
-/**
- * Routes the Claude intercept TLS listener may reach. Everything else on that socket is relayed
- * to the real upstream by the listener itself, so a request that lands here with another path
- * is a bug, not a client — refuse it.
- */
-export function claudeInterceptRouteAllowed(url: URL, req: Request): boolean {
-  return isClaudeInterceptedPath(url.pathname, req.method);
-}
+export { trustedLoopbackForIngress, claudeInterceptRouteAllowed, type ServerIngress } from "./ingress-policy";
 
 export interface ServeOptionsContext {
   readonly server: Server<WsData>;
@@ -377,7 +363,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
       // Anthropic credentials, not opencodex admission tokens — so it takes the loopback view too.
       const policy: RequestPolicyView = ingress === "hub-link"
         ? linkPolicyView!
-        : ingress === "unauthenticated-loopback" || ingress === "claude-intercept"
+        : ingress === "unauthenticated-loopback" || ingress === "claude-intercept" || ingress === "local-control"
           ? loopbackPolicy()
           : config;
       // Codex runtime agent assertion_only (Authorization: AgentAssertion) is refused before
@@ -642,6 +628,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
             admission,
             websocketLease,
             sessionLaneIdFromRequest(req.headers),
+            classifyUsageClient(req.headers),
           ),
         })) return undefined as unknown as Response;
         websocketLease.release();
@@ -1342,7 +1329,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
         const logCtx: RequestLogContext = {
           model: "unknown",
           provider: "unknown",
-          ...requestMetricsLogContext,
+          ...requestMetricsLogContext, client: classifyUsageClient(req.headers),
           ...admissionFields(admission),
           inboundProtocol: "responses",
         };
@@ -1382,7 +1369,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
         const logCtx: RequestLogContext = {
           model: "image_gen",
           provider: "unknown",
-          ...requestMetricsLogContext,
+          ...requestMetricsLogContext, client: classifyUsageClient(req.headers),
           ...admissionFields(admission),
         };
         const endpoint = url.pathname.endsWith("/edits") ? "edits" as const : "generations" as const;
@@ -1440,7 +1427,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
         const logCtx: RequestLogContext = {
           model: "context_history",
           provider: "unknown",
-          ...requestMetricsLogContext,
+          ...requestMetricsLogContext, client: classifyUsageClient(req.headers),
           ...admissionFields(admission),
         };
         return runAdmittedHttpTurn(req, policy, async turnAdmissionLease => {
@@ -1467,7 +1454,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
         const logCtx: RequestLogContext = {
           model: "web_search",
           provider: "unknown",
-          ...requestMetricsLogContext,
+          ...requestMetricsLogContext, client: classifyUsageClient(req.headers),
           ...admissionFields(admission),
         };
         return runAdmittedHttpTurn(req, policy, async turnAdmissionLease => {
@@ -1492,7 +1479,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
         const logCtx: RequestLogContext = {
           model: "unknown",
           provider: "unknown",
-          ...requestMetricsLogContext,
+          ...requestMetricsLogContext, client: classifyUsageClient(req.headers),
           ...admissionFields(admission),
           inboundProtocol: "responses",
         };
@@ -1587,7 +1574,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
         const logCtx: RequestLogContext = {
           model: "unknown",
           provider: "unknown",
-          ...requestMetricsLogContext,
+          ...requestMetricsLogContext, client: classifyUsageClient(req.headers),
           ...admissionFields(admission),
           inboundProtocol: "messages",
         };
@@ -1625,7 +1612,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
         const logCtx: RequestLogContext = {
           model: "unknown",
           provider: "unknown",
-          ...requestMetricsLogContext,
+          ...requestMetricsLogContext, client: classifyUsageClient(req.headers),
           ...admissionFields(admission),
           inboundProtocol: "chat",
         };
@@ -1663,7 +1650,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
         const logCtx: RequestLogContext = {
           model: TRANSCRIPTION_MODEL,
           provider: "unknown",
-          ...requestMetricsLogContext,
+          ...requestMetricsLogContext, client: classifyUsageClient(req.headers),
           ...admissionFields(admission),
         };
         return runAdmittedHttpTurn(req, policy, async lease => {
@@ -1696,7 +1683,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
         const logCtx: RequestLogContext = {
           model: "gpt-live",
           provider: "unknown",
-          ...requestMetricsLogContext,
+          ...requestMetricsLogContext, client: classifyUsageClient(req.headers),
           ...admissionFields(admission),
         };
         return runAdmittedHttpTurn(req, policy, async turnAdmissionLease => {
@@ -1744,7 +1731,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
         const logCtx: RequestLogContext = {
           model: "gpt-live",
           provider: "unknown",
-          ...requestMetricsLogContext,
+          ...requestMetricsLogContext, client: classifyUsageClient(req.headers),
           ...admissionFields(admission),
         };
         let liveRequestFinalized = false;
@@ -1869,6 +1856,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
               liveUpstreamProtocols: audio?.protocols,
               liveValidateFrame: audio?.validateFrame,
               liveMaxSessionMs: audio?.maxSessionMs,
+              liveFinalizationMs: audio?.finalizationMs,
               liveFinish: finish,
               liveAbortSignal: audioController?.signal,
               livePending: [],

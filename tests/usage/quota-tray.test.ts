@@ -28,6 +28,7 @@ import {
 import { MAIN_CODEX_ACCOUNT_ID } from "../../src/codex/account-id";
 import { getAccountSet, saveCredential } from "../../src/oauth/store";
 import { clearAccountQuotaCache, setCachedProviderAccountQuotaForTests } from "../../src/providers/quota";
+import { recordClaudeSignedInIdentity } from "../../src/providers/claude-cli-usage-state";
 import { setProviderQuotaReportCache } from "../../src/providers/quota/report-cache";
 import { linkManagementReadAllowed } from "../../src/link/management-routes";
 import { runPassiveRead } from "../../src/lib/passive-read";
@@ -53,6 +54,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  recordClaudeSignedInIdentity(null);
   setProviderQuotaReportCache(null);
   clearAccountQuotaCache("xai");
   clearAccountQuota();
@@ -113,6 +115,7 @@ describe("ocx.quota-tray/1", () => {
       identity: "c".repeat(64), checkedAt: NOW - 30_000,
       quota: { fiveHourPercent: 100, fiveHourResetAt: NOW + HOUR, weeklyPercent: 61, weeklyResetAt: NOW + 72 * HOUR, updatedAt: NOW - 30_000 },
     }));
+    recordClaudeSignedInIdentity("c".repeat(64));
     setProviderQuotaReportCache({ key: "fixture", ts: NOW, response: { generatedAt: NOW, reports: [{
       provider: "zai", label: "Z.ai", source: "fixture", updatedAt: NOW - 120_000,
       quota: { fiveHourPercent: 30, fiveHourResetAt: NOW + 2 * HOUR, weeklyPercent: 80, weeklyResetAt: NOW + 96 * HOUR, updatedAt: NOW - 120_000 },

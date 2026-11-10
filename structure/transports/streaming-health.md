@@ -358,7 +358,7 @@ Pool quota producers and account commands follow the [bounded raw-observation co
 
 Account quota surfaces use [safe probe diagnostics](inventory.md#account-quota-failure-diagnostics) separately from quota validity, credential health and routing authority.
 
-Combo child requests normalize effort and thinking controls against the selected target while retaining reasoning summaries; strict unknown targets preserve caller controls. The [Responses transport owner](responses.md) documents this boundary, and native Chat also honors explicit per-axis capability declarations; an initial JEV null choice separately strips caller effort.
+Combo child requests normalize effort and thinking controls against the selected target while retaining reasoning summaries; strict unknown targets preserve caller controls. The [Responses transport owner](responses.md) documents this boundary, and native Chat also honors explicit per-axis capability declarations; in the default `decide` mode an initial JEV null choice separately strips caller effort.
 
 Live sideband admission and its bounded upstream handshake follow the [runtime contract](../runtime.md#live-sideband-handshake); the ordinary Responses WebSocket exchange remains separate.
 
@@ -397,8 +397,8 @@ accompany results, but privileged messages, unrelated IDs and duplicate results 
 implementation pins routing, models and tools; validated generation overrides follow the
 [continuation-setting contract](#steering-settings-public-api-and-diagnostic-probe). A failed steer does not
 cancel an explicit continuation already dispatched. Explicit continuations
-are paced and recheck the captured dispatch guard after waiting. No tools, accepted input
-or ambiguously delivered sends are automatically replayed.
+are paced, recheck the captured dispatch guard and follow the [workflow physical-send ceiling](responses-spend.md#workflow-physical-send-ceiling) under the existing turn lease.
+No tools, accepted input or ambiguously delivered sends are automatically replayed; a known local budget refusal is not an upstream failure.
 
 `src/server/responses/native-steering-replay.ts` journals only committed native input into
 the existing thread-scoped replay cache. Rejected/uncommitted steer text is excluded. Sparse
@@ -463,7 +463,7 @@ unreturned advertised calls retain the socket. Late tool results still reach tha
 socket. A `response_already_completed` failure is relayed unchanged, including its
 returned input; only an explicit same-parent/lane/settings client create can supply
 those saved outputs once. The existing continuation pacing and captured dispatch
-guard run again. The proxy never reruns tools, invents acceptance, switches accounts
+guard and [physical-send admission](responses-spend.md#workflow-physical-send-ceiling) run again. The proxy never reruns tools, invents acceptance, switches accounts
 or automatically creates a recovery response. Unknown delivery terminates without
 HTTP fallback or replay. The client decides how to recover other failures.
 

@@ -2,7 +2,7 @@ name: Service lifecycle
 
 on:
   pull_request:
-    branches: [main, dev]
+    branches: [dev]
     paths:
       - "src/service.ts"
       # The service implementation is the src/service/ directory; src/service.ts is only
@@ -23,45 +23,78 @@ on:
       # commit that touches only release.yml (e.g. the v2.40.0 permissions carry, #3263/#3264)
       # produced no run and the gate dead-ended until a manual dispatch.
       - ".github/workflows/release.yml"
-  push:
-    # Release lines only (no dev: cross-platform legs run on dev by manual
-    # workflow_dispatch). Pull requests run only the Linux leg. main and preview
-    # must stay: release.yml needs a successful push run for the exact release
-    # SHA, and scripts/release.ts only releases from main or preview. Without a
-    # branch filter every feature-branch push would re-run all three legs.
-    branches: [main, preview]
-    paths:
-      - "src/service.ts"
-      # Keep in sync with the release.yml service-gate regex (see above).
-      - "src/service/**"
-      - "desktop/**"
-      # Keep in sync with the release.yml service-gate regex (see above).
-      - "src/cli.ts"
-      - "src/cli/index.ts"
-      - "src/lib/bun-runtime.ts"
-      - "package.json"
-      - "bun.lock"
-      - ".github/workflows/service-lifecycle.yml"
-      # release.yml gates on THIS workflow having run for the release SHA. A release-branch
-      # commit that touches only release.yml (e.g. the v2.40.0 permissions carry, #3263/#3264)
-      # produced no run and the gate dead-ended until a manual dispatch.
-      - ".github/workflows/release.yml"
   workflow_dispatch:
+    inputs:
+      release-branch:
+        description: "Fork only: selected releases/vX.Y.Z branch"
+        required: false
+        type: string
+      source_sha:
+        description: "Full dev ancestor SHA to test"
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: service-lifecycle-${{ github.ref }}
-  cancel-in-progress: true
+  group: service-lifecycle-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
+  validate-source:
+    permissions:
+      contents: read
+      pull-requests: read
+    name: validate source
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+      - name: Validate dispatch source
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          SOURCE_SHA: ${{ github.event.inputs.source_sha }}
+          FORK_RELEASE_BRANCH: ${{ github.event.inputs.release-branch }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" != workflow_dispatch ]; then exit 0; fi
+          if [ "$REF" != refs/heads/dev ] || ! [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo '::error::dispatch requires dev and a full lowercase source SHA'
+            exit 1
+          fi
+          if [ "${GITHUB_REPOSITORY:-}" = alexalok/opencodex ]; then
+            node .github/scripts/fork-release.cjs source "$SOURCE_SHA"
+            exit 0
+          fi
+          status="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${SOURCE_SHA}...dev" --jq .status)"
+          if [ "$status" != ahead ] && [ "$status" != identical ]; then
+            echo '::error::source is not an ancestor of dev'
+            exit 1
+          fi
+
   linux-systemd:
+    if: (github.repository != 'alexalok/opencodex' || github.event_name != 'workflow_dispatch' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok'))
+    name: linux-systemd ${{ github.event.inputs.source_sha }}
+    needs: validate-source
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: ./.github/actions/setup-project-bun
+        with:
+          persist-credentials: false
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.source_sha || github.sha }}
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          path: .evidence-policy
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.evidence-policy/.github/actions/setup-project-bun
 
       - run: bun install --frozen-lockfile
 
@@ -177,14 +210,23 @@ jobs:
           fi
 
   macos-launchd:
-    # Pull requests run the Linux leg only; macOS runs on manual dispatch and main/preview push.
-    # Never in the alexalok/opencodex fork unless dispatched by hand.
-    if: github.event_name != 'pull_request' && (github.repository != 'alexalok/opencodex' || github.event_name == 'workflow_dispatch')
+    name: macos-launchd ${{ github.event.inputs.source_sha }}
+    needs: validate-source
+    # Pull requests run the Linux leg only; macOS runs on manual dispatch.
+    if: (github.event_name != 'pull_request' && (github.repository != 'alexalok/opencodex' || github.event_name == 'workflow_dispatch')) && (github.repository != 'alexalok/opencodex' || github.event_name != 'workflow_dispatch' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok'))
     runs-on: macos-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: ./.github/actions/setup-project-bun
+        with:
+          persist-credentials: false
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.source_sha || github.sha }}
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          path: .evidence-policy
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.evidence-policy/.github/actions/setup-project-bun
 
       - run: bun install --frozen-lockfile
 
@@ -258,13 +300,23 @@ jobs:
           fi
 
   windows-schtasks:
-    # Pull requests run the Linux leg only; Windows runs on manual dispatch and main/preview push.
-    if: github.event_name != 'pull_request'
+    name: windows-schtasks ${{ github.event.inputs.source_sha }}
+    needs: validate-source
+    # Pull requests run the Linux leg only; Windows runs on manual dispatch.
+    if: (github.event_name != 'pull_request') && (github.repository != 'alexalok/opencodex' || github.event_name != 'workflow_dispatch' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok'))
     runs-on: windows-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - uses: ./.github/actions/setup-project-bun
+        with:
+          persist-credentials: false
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.source_sha || github.sha }}
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          path: .evidence-policy
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.evidence-policy/.github/actions/setup-project-bun
 
       - run: bun install --frozen-lockfile
 
