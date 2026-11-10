@@ -541,13 +541,13 @@ For `alexalok/opencodex`, dispatch the trusted `dev` revision of `release.yml`
 with an explicit `release-branch`, exact `expected-sha`, and `version`. This
 supersedes dispatching the workflow itself from a release branch. The source
 must be the exact current tip of `releases/vX.Y.Z` and a merged PR commit on
-that branch. The canonical fork release authority is owner `alexalok`: both the
-original dispatch actor and rerun actor must be this owner, and the source PR
-must have been merged by this owner. Writers, self-approved PRs, upstream roster
+that branch. The authorized fork release accounts are owner `alexalok` and owner-authorized
+`jack-o-mania`: both the original dispatch actor and rerun actor must be one of
+these accounts, and the source PR must have been merged by one of them. Writers, self-approved PRs, upstream roster
 membership and repository admin roles do not substitute for this authorization.
 The guard reads full PR merger metadata from GitHub under trusted `dev` policy;
 candidate-controlled rosters never grant authority. Qualification evidence also
-requires owner dispatch/rerun identities. Candidate execution and publication
+requires authorized dispatch/rerun identities. Candidate execution and publication
 jobs independently gate reruns before accessing signing credentials, including
 dry runs. Runtime source never comes from current `dev`. Version mirrors
 remain committed on the release branch and each backport increases its patch;
@@ -557,10 +557,11 @@ Select the highest published stable upstream base available for at least 168
 hours, using the later GitHub/npm publication time. The guard verifies the
 selected base's age, upstream-tag ancestry, and stable patch line. The operator
 must record highest-eligible-base selection and individually justified backports.
-Fork ordering considers only release-source ancestors, while duplicate versions
-and moving npm `latest` backwards remain forbidden. The shared
-`@bitkyc08/opencodex` namespace may therefore block an otherwise age-eligible
-fork release; that refusal is not permission to change namespace or publication policy.
+The fork publishes GitHub releases and verified standalone/desktop assets only.
+It never publishes npm packages or changes npm dist-tags. Fork ordering considers
+only release-source ancestors; duplicate GitHub tags remain forbidden. npm is
+read only to establish the upstream base publication date, never to constrain
+the fork version against upstream `latest`.
 
 Backport the reviewed CI tooling when necessary and run manual `ci.yml` with
 `lane=all` from the exact merged release source. Evidence must match reviewed
@@ -571,5 +572,7 @@ automatic runs; release qualification requires the complete manual evidence.
 Security review is performed externally through Codex Security Cloud. Record
 review reference and reviewed SHA before merge, resolve applicable findings, and
 do not substitute local tests or agent review. Publication hold remains unchanged.
-Fork resume is refused until a separately reviewed fork receipt/provenance policy
-is available; never retry an acknowledged npm publication as a fresh release.
+Fork resume is refused until a separately reviewed GitHub receipt/provenance policy
+is available. A partial tag or draft publication requires operator recovery; do
+not delete or overwrite it automatically. The shared workflow skips all npm jobs
+for this fork and publishes only after verifying the asset bundle.
