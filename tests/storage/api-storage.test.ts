@@ -3,6 +3,7 @@ import { managementFetch as fetch } from "../helpers/management-auth";
 import { mkdirSync, mkdtempSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { flushNativeMainStartupReleases, waitForNativeMainStartupGate } from "../../src/codex/native-profile-startup";
 import { saveConfig } from "../../src/config";
 import { startServer } from "../../src/server";
 import type { OcxConfig } from "../../src/types";
@@ -65,7 +66,8 @@ beforeEach(() => {
   saveConfig(baseConfig());
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await flushNativeMainStartupReleases();
   if (previousHome === undefined) delete process.env.OPENCODEX_HOME;
   else process.env.OPENCODEX_HOME = previousHome;
   isolatedCodexHome?.restore();
@@ -79,6 +81,7 @@ describe("GET /api/storage", () => {
     writeSessionsFixture(isolatedCodexHome!.path);
     const server = startServer(0);
     try {
+      await waitForNativeMainStartupGate();
       const res = await fetch(new URL("/api/storage", server.url));
       expect(res.status).toBe(200);
       const body = await res.json();
