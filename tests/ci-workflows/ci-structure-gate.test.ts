@@ -79,6 +79,6 @@ test("app changes reach the macOS widget job after merge", () => {
   // The widget runs on macOS through manual dispatch after the PR.
   expect(workflow.on?.push).toBeUndefined();
   const widget = workflow.jobs?.widget;
-  expect(widget?.if).toBe("github.event_name != 'pull_request' && (github.repository != 'alexalok/opencodex' || github.event_name == 'workflow_dispatch')");
+  expect(widget?.if).toBe("github.event_name != 'pull_request' && (vars.OCX_DISABLE_MACOS_CI != 'true' && (github.repository != 'alexalok/opencodex' || github.event_name == 'workflow_dispatch'))");
   expect(Array.isArray(widget?.needs) ? widget?.needs : []).toContain("changes");
 });

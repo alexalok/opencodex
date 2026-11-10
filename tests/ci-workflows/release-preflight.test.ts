@@ -542,11 +542,14 @@ test("candidate and publication jobs require owner dispatch and rerun independen
       const condition = workflow.jobs?.[id]?.if;
       expect(condition, `${file}:${id}`).toBeDefined();
       const expression = condition!.replace(/^\$\{\{\s*|\s*\}\}$/g, "").replaceAll("inputs.dry-run", "inputs.dryRun").replaceAll("needs.validate-dispatch", "needs.validateDispatch").replaceAll("needs.verify-release", "needs.verifyRelease").replaceAll("needs.fork-publish", "needs.forkPublish");
-      const evaluate = new Function("github", "inputs", "needs", "always", `return (${expression});`);
-      const run = (actor: string | undefined, triggering_actor: string | undefined, repository = "alexalok/opencodex", dryRun = false) => evaluate(
+      const evaluate = new Function("github", "inputs", "needs", "always", "vars", `return (${expression});`);
+      const run = (actor: string | undefined, triggering_actor: string | undefined, repository = "alexalok/opencodex", dryRun = false, disableMacos = "") => evaluate(
         { actor, triggering_actor, repository, event_name: "workflow_dispatch", ref: "refs/heads/dev" },
-        { dryRun }, { validateDispatch: { result: "success" }, verifyRelease: { result: "success" }, forkPublish: { result: "success" }, publish: { result: "success" } }, () => true,
+        { dryRun }, { validateDispatch: { result: "success" }, verifyRelease: { result: "success" }, forkPublish: { result: "success" }, publish: { result: "success" } }, () => true, { OCX_DISABLE_MACOS_CI: disableMacos.toLowerCase() },
       );
+      if (file === "service-lifecycle.yml") {
+        for (const disabled of ["true", "TRUE"]) expect(run("alexalok", "alexalok", "alexalok/opencodex", false, disabled), id).toBe(id !== "macos-launchd");
+      }
       const npmOnly = ["package-npm", "verify-npm", "publish", "release-outcomes"].includes(id);
       expect(run("alexalok", "alexalok"), `${file}:${id}`).toBe(!npmOnly);
       expect(run("jack-o-mania", "jack-o-mania"), `${file}:${id}`).toBe(!npmOnly);

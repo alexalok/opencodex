@@ -141,4 +141,4 @@ Linux jobs always use GitHub-hosted Ubuntu runners. The Windows selector always 
 
 The gates job retrieves missing legacy release test objects from the canonical public upstream by three fixed commit SHAs before validating historical trees. Fetches create no branch or tag refs; unavailable or invalid evidence fails the job.
 
-Fork release qualification uses GitHub-hosted Linux, Windows and macOS runners. The checked-in workflow has no selectable persistent runner pool; runner access outside workflow code remains an administrator responsibility.
+Fork release qualification uses GitHub-hosted Linux and Windows runners, plus macOS only when `OCX_DISABLE_MACOS_CI` is not true. The flag excludes macOS jobs and matrix legs even on manual dispatch; the CI aggregate enforces every remaining requested job. The checked-in workflow has no selectable persistent runner pool; runner access outside workflow code remains an administrator responsibility.

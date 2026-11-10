@@ -144,7 +144,7 @@ test("cross-platform workflows restrict dispatch to dev and explicit fork releas
       for (const id of ["macos-launchd", "windows-schtasks"]) {
         expect(parsed.jobs[id]?.needs).toBe("validate-source");
         expect(parsed.jobs[id]?.if).toBe(id === "macos-launchd"
-          ? "(github.event_name != 'pull_request' && (github.repository != 'alexalok/opencodex' || github.event_name == 'workflow_dispatch')) && (github.repository != 'alexalok/opencodex' || github.event_name != 'workflow_dispatch' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania')))"
+          ? "(github.event_name != 'pull_request' && (vars.OCX_DISABLE_MACOS_CI != 'true' && (github.repository != 'alexalok/opencodex' || github.event_name == 'workflow_dispatch'))) && (github.repository != 'alexalok/opencodex' || github.event_name != 'workflow_dispatch' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania')))"
           : "(github.event_name != 'pull_request') && (github.repository != 'alexalok/opencodex' || github.event_name != 'workflow_dispatch' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania')))");
       }
     }
@@ -161,4 +161,30 @@ test("scheduled runs never share the push group or cancel earlier runs", () => {
   expect(concurrency(scheduled("1")).group).not.toBe(concurrency(devPush).group);
   expect(concurrency(scheduled("1")).group).not.toBe(concurrency(scheduled("2")).group);
   expect(concurrency(scheduled("1")).cancels).toBe("false");
+});
+
+test("all hosted runner matrices honor macOS disable on manual runs and preserve default coverage", () => {
+  const cases = [
+    ["ci.yml", "setup-action", "os"],
+    ["ci.yml", "remote-helper", "os"],
+    ["catalog-async-contracts.yml", "contracts", "os"],
+    ["codex-queue-helpers.yml", "offline-helpers", "include"],
+  ];
+  for (const [file, job, field] of cases) {
+    const workflow = Bun.YAML.parse(readFileSync(repoPath(".github/workflows", file!), "utf8")) as {
+      jobs: Record<string, { strategy?: { matrix?: Record<string, string> } }>;
+    };
+    const expression = workflow.jobs[job!]?.strategy?.matrix?.[field!];
+    expect(expression, file + ":" + job).toBeDefined();
+    const evaluateMatrix = new Function("github", "vars", "fromJSON", "return (" + expression!.replace(/^\$\{\{\s*|\s*\}\}$/g, "") + ");");
+    for (const repository of ["alexalok/opencodex", "lidge-jun/opencodex"]) {
+      for (const flag of ["", "false", "true", "TRUE"]) {
+        // GitHub Actions compares strings case-insensitively.
+        const entries = evaluateMatrix({ repository, event_name: "workflow_dispatch" }, { OCX_DISABLE_MACOS_CI: flag.toLowerCase() }, JSON.parse) as Array<string | { os: string }>;
+        const runners = entries.map(entry => typeof entry === "string" ? entry : entry.os).sort();
+        expect(runners, file + ":" + flag).toEqual(flag.toLowerCase() === "true"
+          ? ["ubuntu-latest", "windows-latest"] : ["macos-latest", "ubuntu-latest", "windows-latest"]);
+      }
+    }
+  }
 });
