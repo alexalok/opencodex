@@ -213,7 +213,7 @@ describe("CI review lanes", () => {
     }
     const macosControlIf = ci.jobs?.["macos-control"] as { needs?: string; if?: string } | undefined;
     expect(macosControlIf?.needs).toBe("changes");
-    expect(macosControlIf?.if).toBe("(github.repository != 'alexalok/opencodex' || github.event_name == 'workflow_dispatch') && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && (github.event.inputs.lane == '' || github.event.inputs.lane == 'all' || github.event.inputs.lane == 'macos-control'))");
+    expect(macosControlIf?.if).toBe("(vars.OCX_DISABLE_MACOS_CI != 'true' && (github.repository != 'alexalok/opencodex' || github.event_name == 'workflow_dispatch')) && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && (github.event.inputs.lane == '' || github.event.inputs.lane == 'all' || github.event.inputs.lane == 'macos-control'))");
   });
 
   test("manual release-gates keeps ordinary jobs and skips only diagnostic suites", async () => {
@@ -224,10 +224,11 @@ describe("CI review lanes", () => {
     // Evaluate the checked-in expressions, rather than a second implementation of them.
     const enabled = (job: string, event: string, lane: string, scope = "true", packaging = "true", native = "true", windows = "false", smoke = "true") => {
       const condition = ci.jobs[job]!.if ?? "true";
-      const evaluate = new Function("github", "needs", `return (${condition});`);
+      const evaluate = new Function("github", "needs", "vars", `return (${condition});`);
       return evaluate(
         { event_name: event, event: { inputs: { lane } } },
         { changes: { outputs: { ci: scope, packaging, native, windows, docker: smoke, keyring: smoke } } },
+        { OCX_DISABLE_MACOS_CI: "false" },
       );
     };
     for (const [event, lane, windows, control] of [

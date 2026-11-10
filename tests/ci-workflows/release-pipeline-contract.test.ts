@@ -9,6 +9,7 @@ import { repoPath } from "../helpers/repo-root";
 
 type WorkflowStep = {
   name?: string;
+  id?: string;
   if?: string;
   uses?: string;
   with?: Record<string, unknown>;
@@ -21,7 +22,8 @@ type WorkflowJob = {
   if?: string;
   needs?: string[];
   permissions?: Record<string, string>;
-  strategy?: { matrix?: { include?: Array<{ os?: string }> } };
+  strategy?: { matrix?: string | { include?: Array<{ os?: string }> } };
+  outputs?: Record<string, string>;
   steps?: WorkflowStep[];
 };
 
@@ -582,7 +584,10 @@ describe("release pipeline contract", () => {
     for (const jobId of ["package-standalone", "package-desktop"]) {
       const job = release.jobs?.[jobId];
       expect(job, jobId).toBeDefined();
-      const runsOnWindows = job!.strategy?.matrix?.include?.some(entry => entry.os === "windows-latest");
+      const selector = release.jobs?.["validate-dispatch"]?.steps?.find(step => step.id === "platforms");
+      const key = jobId === "package-standalone" ? "STANDALONE_MATRIX" : "DESKTOP_MATRIX";
+      const matrix = JSON.parse(selector!.env![key]!) as { include: Array<{ os: string }> };
+      const runsOnWindows = matrix.include.some(entry => entry.os === "windows-latest");
       expect(runsOnWindows, `${jobId} exercises Windows`).toBe(true);
       for (const step of job!.steps ?? []) {
         // A single command line is shell-neutral; a script block implies shell-specific
@@ -875,4 +880,34 @@ describe("service lifecycle trigger coverage", () => {
     expect(serviceChangeRequired(["src/router.ts"])).toBe(false);
     expect(serviceChangeRequired(["docs-site/src/pages/index.astro"])).toBe(false);
   });
+});
+
+test("release platform selection preserves defaults and excludes only macOS when disabled", () => {
+  const release = readWorkflow(".github", "workflows", "release.yml");
+  const validation = release.jobs?.["validate-dispatch"];
+  const selector = validation?.steps?.find(step => step.id === "platforms");
+  expect(selector?.env?.DISABLE_MACOS).toBe("${{ vars.OCX_DISABLE_MACOS_CI }}");
+  const directory = mkdtempSync(join(tmpdir(), "release-platforms-"));
+  try {
+    for (const disabled of ["", "false", "true", "TRUE"]) {
+      const output = join(directory, "output-" + (disabled || "unset"));
+      const result = Bun.spawnSync(["bash", "-e", "-c", selector!.run!], {
+        env: releaseTestEnv({ PATH: process.env.PATH!, ...selector!.env, DISABLE_MACOS: disabled, GITHUB_OUTPUT: output }),
+      });
+      expect(result.exitCode, result.stderr.toString()).toBe(0);
+      const values = Object.fromEntries(readFileSync(output, "utf8").trim().split("\n").map(line => {
+        const equals = line.indexOf("=");
+        return [line.slice(0, equals), JSON.parse(line.slice(equals + 1))];
+      }));
+      for (const kind of ["standalone", "desktop"]) {
+        const key = kind + "_matrix";
+        const original = JSON.parse(selector!.env![key.toUpperCase()]!).include;
+        const expected = disabled.toLowerCase() === "true" ? original.filter((row: { dependency_os: string }) => row.dependency_os !== "darwin") : original;
+        expect(values[key].include).toEqual(expected);
+        expect(values[key].include.length).toBeGreaterThan(0);
+        expect(validation?.outputs?.[key]).toBe("${{ steps.platforms.outputs." + key + " }}");
+        expect(release.jobs?.["package-" + kind]?.strategy?.matrix).toBe("${{ fromJSON(needs.validate-dispatch.outputs." + key + ") }}");
+      }
+    }
+  } finally { removeTreeWithRetry(directory); }
 });

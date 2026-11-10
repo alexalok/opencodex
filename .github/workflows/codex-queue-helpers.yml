@@ -25,8 +25,8 @@ jobs:
       fail-fast: false
       matrix:
         # The alexalok/opencodex fork runs no hosted macOS jobs unless dispatched
-        # by hand, so its list drops the macos-latest leg. Elsewhere all three run.
-        include: ${{ fromJSON(github.repository == 'alexalok/opencodex' && github.event_name != 'workflow_dispatch' && '[{"os":"ubuntu-latest","shells":"bash"},{"os":"windows-latest","shells":"powershell.exe,pwsh.exe"}]' || '[{"os":"ubuntu-latest","shells":"bash"},{"os":"macos-latest","shells":"/bin/bash"},{"os":"windows-latest","shells":"powershell.exe,pwsh.exe"}]') }}
+        # by hand with the disable flag off. The flag also excludes macOS elsewhere.
+        include: ${{ fromJSON((vars.OCX_DISABLE_MACOS_CI == 'true' || github.repository == 'alexalok/opencodex' && github.event_name != 'workflow_dispatch') && '[{"os":"ubuntu-latest","shells":"bash"},{"os":"windows-latest","shells":"powershell.exe,pwsh.exe"}]' || '[{"os":"ubuntu-latest","shells":"bash"},{"os":"macos-latest","shells":"/bin/bash"},{"os":"windows-latest","shells":"powershell.exe,pwsh.exe"}]') }}
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7

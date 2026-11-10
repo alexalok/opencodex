@@ -55,7 +55,14 @@ function source(branch, candidate, read = api, authority = currentAuthority()) {
     'release source PR must be merged by an authorized release account');
   return base;
 }
-async function evidence(branch,candidate,kind,read = api,policies = require('./release-evidence-policy.json'),authority = currentAuthority()) {
+// The flag comes from the trusted release workflow's repository-variable env,
+// never from candidate metadata or the qualifying run. Actions ignores case.
+function requiredJobs(kind,candidate,disableMacos = process.env.OCX_DISABLE_MACOS_CI) {
+  const {CI_JOBS,serviceJobs} = require('./release-evidence.cjs');
+  const jobs = kind === 'ci' ? CI_JOBS : serviceJobs(candidate);
+  return String(disableMacos).toLowerCase() === 'true' ? jobs.filter(name => !name.includes('macos')) : jobs;
+}
+async function evidence(branch,candidate,kind,read = api,policies = require('./release-evidence-policy.json'),authority = currentAuthority(),disableMacos = process.env.OCX_DISABLE_MACOS_CI) {
   source(branch,candidate,read,authority);
   const filename = kind === 'service' ? 'service-lifecycle.yml' : 'ci.yml';
   const wf = read(`repos/${FORK}/actions/workflows/${filename}`);
@@ -64,7 +71,8 @@ async function evidence(branch,candidate,kind,read = api,policies = require('./r
   if (kind === 'ci') params.set('head_sha',candidate);
   const result = read(`repos/${FORK}/actions/workflows/${wf.id}/runs?${params}`);
   must(Number.isSafeInteger(result.total_count) && result.total_count <= 100 && result.workflow_runs.length === result.total_count,'incomplete fork evidence pagination');
-  const {CI_JOBS,serviceJobs,validateJobs,assertPolicy} = require('./release-evidence.cjs');
+  const {validateJobs,assertPolicy} = require('./release-evidence.cjs');
+  const required = requiredJobs(kind,candidate,disableMacos);
   for (const run of result.workflow_runs) {
     if (run.repository?.id !== ID || run.head_repository?.id !== ID || run.workflow_id !== wf.id || run.event !== 'workflow_dispatch' || run.status !== 'completed' || run.conclusion !== 'success') continue;
     if (kind === 'ci' && (run.head_sha !== candidate || run.head_branch !== branch || run.display_title !== `ocx-ci-v1 lane=all sha=${candidate}`)) continue;
@@ -78,7 +86,7 @@ async function evidence(branch,candidate,kind,read = api,policies = require('./r
     }
     const jobs = read(`repos/${FORK}/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`);
     must(jobs.total_count <= 100 && jobs.jobs.length === jobs.total_count,'incomplete fork jobs');
-    try { validateJobs(jobs.jobs,kind === 'ci' ? CI_JOBS : serviceJobs(candidate)); }
+    try { validateJobs(jobs.jobs,required); }
     catch { continue; }
     source(branch,candidate,read,authority);
     return {sourceSha:candidate,ciRunId:run.id};
@@ -111,4 +119,4 @@ async function main(args) {
   throw Error('unknown fork release operation');
 }
 if (require.main === module) main(process.argv.slice(2)).then(result => process.stdout.write(JSON.stringify(result)+'\n')).catch(error => { console.error(`fork release: ${error.message}`); process.exitCode=1; });
-module.exports = {assertReleaseAuthority,validateOrdering,validateSelection,validateAge,validateVersion,source,evidence,history};
+module.exports = {requiredJobs,assertReleaseAuthority,validateOrdering,validateSelection,validateAge,validateVersion,source,evidence,history};

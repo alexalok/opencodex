@@ -13,6 +13,7 @@ export interface UpdaterManifestOptions {
   out: string;
   warn?: (message: string) => void;
   requireAll?: boolean;
+  excludeMacos?: boolean;
 }
 
 interface PlatformUpdate {
@@ -46,6 +47,7 @@ export function buildUpdaterManifest(options: UpdaterManifestOptions): UpdaterMa
   const platforms: Record<string, PlatformUpdate> = {};
   const missing: string[] = [];
   for (const [platform, suffix] of Object.entries(platformFiles)) {
+    if (options.excludeMacos && platform.startsWith("darwin-")) continue;
     const base = `OpenCodex-${options.version}-${suffix}`;
     const signaturePath = join(dir, `${base}.sig`);
     if (!existsSync(signaturePath)) {
@@ -96,9 +98,9 @@ if (import.meta.main) {
   const requireAll = Bun.argv.includes("--require-all");
   if (!version || !dir || !repo || !out) {
     throw new Error(
-      "Usage: updater-manifest.ts --version <version> --dir <dir> --repo <owner/name> --out <file> [--require-all]",
+      "Usage: updater-manifest.ts --version <version> --dir <dir> --repo <owner/name> --out <file> [--require-all] [--exclude-macos]",
     );
   }
-  writeUpdaterManifest({ version, dir, repo, out, requireAll });
+  writeUpdaterManifest({ version, dir, repo, out, requireAll, excludeMacos: Bun.argv.includes("--exclude-macos") });
   console.log(`Wrote ${out}`);
 }

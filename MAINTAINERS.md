@@ -257,8 +257,13 @@ must enforce runner access outside mutable workflow files as well.
 Backport the reviewed CI tooling when necessary and run manual `ci.yml` with
 `lane=all` from the exact merged release source. Evidence must match reviewed
 policy fingerprints. Service evidence is manually dispatched from trusted `dev`
-with the same source SHA and `release-branch`. Hosted macOS stays excluded from
-automatic runs; release qualification requires the complete manual evidence.
+with the same source SHA and `release-branch`. Repository variable
+`OCX_DISABLE_MACOS_CI=true` disables macOS on every event, including manual
+qualification and release packaging. Linux and Windows evidence remains mandatory;
+disabled macOS is not claimed as validated. Such releases contain only Linux and
+Windows assets and updater entries, with the same checksum and signature gates.
+When the flag is unset or false, manual qualification requires all three platforms.
+Preserve this override when synchronizing upstream workflows.
 
 Security review is performed externally through Codex Security Cloud. Record
 review reference and reviewed SHA before merge, resolve applicable findings, and
