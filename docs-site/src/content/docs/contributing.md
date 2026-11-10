@@ -279,7 +279,9 @@ only claim the validation you actually completed.
 
 ## Fork release source and external review
 
-For `alexalok/opencodex`, dispatch the trusted `dev` revision of `release.yml`
+For `alexalok/opencodex`, owner `alexalok` and owner-authorized `jack-o-mania`
+may merge release sources, dispatch qualification and publish releases.
+Dispatch the trusted `dev` revision of `release.yml`
 with an explicit `release-branch`, exact `expected-sha`, and `version`. This
 supersedes dispatching the workflow itself from a release branch. The source
 must be the exact current tip of `releases/vX.Y.Z` and a merged PR commit on

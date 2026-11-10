@@ -188,7 +188,7 @@ jobs:
   # while a run packages (a hand-pushed tag, a first local publish), so `publish` repeats every
   # one of these checks immediately before `npm publish`.
   preflight:
-    if: ${{ (github.repository != 'alexalok/opencodex' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok')) }}
+    if: ${{ (github.repository != 'alexalok/opencodex' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania'))) }}
     name: release preflight
     needs: validate-dispatch
     runs-on: ubuntu-latest
@@ -234,7 +234,7 @@ jobs:
 
   package-standalone:
     needs: [validate-dispatch, preflight]
-    if: ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev') && (github.repository != 'alexalok/opencodex' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok')) }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev') && (github.repository != 'alexalok/opencodex' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania'))) }}
     strategy:
       fail-fast: false
       matrix:
@@ -449,7 +449,7 @@ jobs:
 
   package-desktop:
     needs: [validate-dispatch, preflight]
-    if: ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev') && (github.repository != 'alexalok/opencodex' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok')) }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev') && (github.repository != 'alexalok/opencodex' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania'))) }}
     strategy:
       fail-fast: false
       matrix:
@@ -1179,7 +1179,7 @@ jobs:
   # verifying after the fact. Runs on dry-run too: a dry run must prove the same
   # chain a real release will rely on.
   verify-release:
-    if: ${{ (github.repository != 'alexalok/opencodex' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok')) }}
+    if: ${{ (github.repository != 'alexalok/opencodex' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania'))) }}
     runs-on: ubuntu-latest
     needs: [validate-dispatch, package-standalone, package-desktop]
     timeout-minutes: 10
@@ -1278,7 +1278,7 @@ jobs:
   # Fork publication never receives npm credentials or an OIDC write permission.
   fork-publish:
     needs: [validate-dispatch, verify-release]
-    if: ${{ github.repository == 'alexalok/opencodex' && github.actor == 'alexalok' && github.triggering_actor == 'alexalok' && inputs.dry-run != true }}
+    if: ${{ github.repository == 'alexalok/opencodex' && (github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania') && inputs.dry-run != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -1315,7 +1315,7 @@ jobs:
   attach-release:
     runs-on: ubuntu-latest
     needs: [validate-dispatch, publish, fork-publish, verify-release]
-    if: ${{ always() && inputs.dry-run != true && needs.validate-dispatch.result == 'success' && needs.verify-release.result == 'success' && ((github.repository == 'alexalok/opencodex' && github.actor == 'alexalok' && github.triggering_actor == 'alexalok' && needs.fork-publish.result == 'success') || (github.repository != 'alexalok/opencodex' && needs.publish.result == 'success')) }}
+    if: ${{ always() && inputs.dry-run != true && needs.validate-dispatch.result == 'success' && needs.verify-release.result == 'success' && ((github.repository == 'alexalok/opencodex' && (github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania') && needs.fork-publish.result == 'success') || (github.repository != 'alexalok/opencodex' && needs.publish.result == 'success')) }}
     timeout-minutes: 10
     permissions:
       contents: write

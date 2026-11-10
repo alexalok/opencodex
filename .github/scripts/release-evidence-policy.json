@@ -356,5 +356,15 @@
       ".github/scripts/fork-release.cjs": "619b3c8def032b068d34252014fc6c9b07db8194",
       ".github/scripts/release-history.cjs": "012776de33949efeb1f43204360ce37211579521"
     }
+  },
+  {
+    "kind": "service",
+    "version": 1,
+    "files": {
+      ".github/workflows/service-lifecycle.yml": "5a66aca2e4ae30c8508ad460b688bc40958072a9",
+      ".github/actions/setup-project-bun/action.yml": "cf28f6f9d4385d69784f4e3610914f6952ce789d",
+      ".github/scripts/fork-release.cjs": "d9783248a6c890b13517c6cf56c5eb1eeb562fae",
+      ".github/scripts/release-history.cjs": "012776de33949efeb1f43204360ce37211579521"
+    }
   }
 ]

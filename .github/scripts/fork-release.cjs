@@ -3,7 +3,7 @@
 // Fork policy runs from the trusted dev workflow checkout, never from the candidate.
 const {execFileSync} = require('node:child_process');
 const {compareVersions} = require('./release-history.cjs');
-const FORK = 'alexalok/opencodex', ID = 1361227105, RELEASE_OWNER = 'alexalok';
+const FORK = 'alexalok/opencodex', ID = 1361227105, RELEASE_ACTORS = new Set(['alexalok', 'jack-o-mania']);
 const SHA = /^[0-9a-f]{40}$/;
 const BRANCH = /^releases\/v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 function must(value, message) { if (!value) throw Error(message); }
@@ -34,11 +34,11 @@ async function registry() {
 }
 // This policy belongs to the trusted dev checkout, never a candidate-controlled roster.
 function assertReleaseAuthority(authority) {
-  must(authority?.actor === RELEASE_OWNER && authority?.triggeringActor === RELEASE_OWNER,
-    'fork release dispatch and rerun require owner alexalok');
+  must(RELEASE_ACTORS.has(authority?.actor) && RELEASE_ACTORS.has(authority?.triggeringActor),
+    'fork release dispatch and rerun require an authorized release account');
 }
 function currentAuthority() { return {actor:process.env.GITHUB_ACTOR,triggeringActor:process.env.GITHUB_TRIGGERING_ACTOR}; }
-function ownerUser(user) { return user?.login === RELEASE_OWNER && user?.type === 'User'; }
+function releaseUser(user) { return RELEASE_ACTORS.has(user?.login) && user?.type === 'User'; }
 function source(branch, candidate, read = api, authority = currentAuthority()) {
   assertReleaseAuthority(authority);
   const base = validateSelection(branch,candidate);
@@ -51,8 +51,8 @@ function source(branch, candidate, read = api, authority = currentAuthority()) {
   must(selected,'source must be a merged PR commit on selected release branch');
   // Commit-associated PR summaries need not include merged_by. Read the authoritative detail.
   const detail = read(`repos/${FORK}/pulls/${selected.number}`);
-  must(detail.number === selected.number && matches(detail) && ownerUser(detail.merged_by),
-    'release source PR must be merged by owner alexalok');
+  must(detail.number === selected.number && matches(detail) && releaseUser(detail.merged_by),
+    'release source PR must be merged by an authorized release account');
   return base;
 }
 async function evidence(branch,candidate,kind,read = api,policies = require('./release-evidence-policy.json'),authority = currentAuthority()) {
@@ -69,7 +69,7 @@ async function evidence(branch,candidate,kind,read = api,policies = require('./r
     if (run.repository?.id !== ID || run.head_repository?.id !== ID || run.workflow_id !== wf.id || run.event !== 'workflow_dispatch' || run.status !== 'completed' || run.conclusion !== 'success') continue;
     if (kind === 'ci' && (run.head_sha !== candidate || run.head_branch !== branch || run.display_title !== `ocx-ci-v1 lane=all sha=${candidate}`)) continue;
     if (kind === 'service' && run.head_branch !== 'dev') continue;
-    if (!ownerUser(run.actor) || !ownerUser(run.triggering_actor)) continue;
+    if (!releaseUser(run.actor) || !releaseUser(run.triggering_actor)) continue;
     try { await assertPolicy(async path => read(`repos/${FORK}${path}`),run,kind,policies); }
     catch (error) {
       // An unapproved run is not evidence; transport/incomplete/unknown failures are fatal.

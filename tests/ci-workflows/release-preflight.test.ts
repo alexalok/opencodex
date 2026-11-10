@@ -549,6 +549,7 @@ test("candidate and publication jobs require owner dispatch and rerun independen
       );
       const npmOnly = ["package-npm", "verify-npm", "publish", "release-outcomes"].includes(id);
       expect(run("alexalok", "alexalok"), `${file}:${id}`).toBe(!npmOnly);
+      expect(run("jack-o-mania", "jack-o-mania"), `${file}:${id}`).toBe(!npmOnly);
       for (const pair of [["writer", "writer"], ["alexalok", "writer"], ["writer", "alexalok"], [undefined, "alexalok"], ["alexalok", undefined]]) {
         expect(run(pair[0], pair[1]), `${file}:${id}`).toBe(false);
       }

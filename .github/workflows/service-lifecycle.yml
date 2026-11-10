@@ -79,7 +79,7 @@ jobs:
           fi
 
   linux-systemd:
-    if: (github.repository != 'alexalok/opencodex' || github.event_name != 'workflow_dispatch' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok'))
+    if: (github.repository != 'alexalok/opencodex' || github.event_name != 'workflow_dispatch' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania')))
     name: linux-systemd ${{ github.event.inputs.source_sha }}
     needs: validate-source
     runs-on: ubuntu-latest
@@ -213,7 +213,7 @@ jobs:
     name: macos-launchd ${{ github.event.inputs.source_sha }}
     needs: validate-source
     # Pull requests run the Linux leg only; macOS runs on manual dispatch.
-    if: (github.event_name != 'pull_request' && (github.repository != 'alexalok/opencodex' || github.event_name == 'workflow_dispatch')) && (github.repository != 'alexalok/opencodex' || github.event_name != 'workflow_dispatch' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok'))
+    if: (github.event_name != 'pull_request' && (github.repository != 'alexalok/opencodex' || github.event_name == 'workflow_dispatch')) && (github.repository != 'alexalok/opencodex' || github.event_name != 'workflow_dispatch' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania')))
     runs-on: macos-latest
     timeout-minutes: 10
     steps:
@@ -303,7 +303,7 @@ jobs:
     name: windows-schtasks ${{ github.event.inputs.source_sha }}
     needs: validate-source
     # Pull requests run the Linux leg only; Windows runs on manual dispatch.
-    if: (github.event_name != 'pull_request') && (github.repository != 'alexalok/opencodex' || github.event_name != 'workflow_dispatch' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok'))
+    if: (github.event_name != 'pull_request') && (github.repository != 'alexalok/opencodex' || github.event_name != 'workflow_dispatch' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania')))
     runs-on: windows-latest
     timeout-minutes: 10
     steps:

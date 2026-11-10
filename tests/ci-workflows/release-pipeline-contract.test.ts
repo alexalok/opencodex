@@ -108,7 +108,7 @@ describe("release pipeline contract", () => {
     for (const id of ["package-standalone", "package-desktop"]) {
       const job = release.jobs?.[id];
       expect(needsOf(job), id).toEqual(["validate-dispatch", "preflight"]);
-      expect(job?.if, id).toBe("${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev') && (github.repository != 'alexalok/opencodex' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok')) }}");
+      expect(job?.if, id).toBe("${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev') && (github.repository != 'alexalok/opencodex' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania'))) }}");
       const steps = job?.steps ?? [];
       expect(steps.find(step => step.name === "Checkout")?.with?.ref, id)
         .toBe("${{ needs.validate-dispatch.outputs.source_sha }}");
@@ -653,7 +653,7 @@ describe("release pipeline contract", () => {
       .toEqual(["package-desktop", "package-standalone", "validate-dispatch"]);
     // Verification is not a publication-mode step: a dry run must prove the same chain
     // a real release relies on, so the job carries no dry-run exemption.
-    expect(verify!.if).toBe("${{ (github.repository != 'alexalok/opencodex' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok')) }}");
+    expect(verify!.if).toBe("${{ (github.repository != 'alexalok/opencodex' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania'))) }}");
     expect(verify!.steps?.some(candidate => candidate.run?.includes("verify-release-assets.ts")))
       .toBe(true);
 

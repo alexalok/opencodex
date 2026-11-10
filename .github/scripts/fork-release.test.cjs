@@ -98,14 +98,14 @@ test('fork evidence refuses a scan with no approved policy',async()=>{
 test('fork source rejects writer dispatches, untrusted reruns and non-owner PR mergers',()=>{
  const {source}=require('./fork-release.cjs'), candidate='a'.repeat(40), branch='releases/v2.90.0';
  for(const authority of [{},{actor:'writer',triggeringActor:'writer'},{actor:'alexalok',triggeringActor:'writer'},{actor:'writer',triggeringActor:'alexalok'},{actor:'lidge-jun',triggeringActor:'lidge-jun'}]) {
-  assert.throws(()=>source(branch,candidate,()=>{throw Error('API must not run before authority check');},authority),/require owner alexalok/);
+  assert.throws(()=>source(branch,candidate,()=>{throw Error('API must not run before authority check');},authority),/require an authorized release account/);
  }
- for(const merged_by of [undefined,{login:'writer',type:'User'},{login:'alexalok',type:'Bot'},{login:'Ingwannu',type:'User'},{login:'alexalok',type:'User'}]) {
+ for(const merged_by of [undefined,{login:'writer',type:'User'},{login:'alexalok',type:'Bot'},{login:'Ingwannu',type:'User'},{login:'alexalok',type:'User'},{login:'jack-o-mania',type:'User'}]) {
   const repo={id:1361227105,full_name:'alexalok/opencodex'};
   const pr={number:8,merged_at:'2026-11-01',merge_commit_sha:candidate,base:{ref:branch,repo},user:{login:'writer'},merged_by,approved:true};
   const read=path=>path.endsWith('/opencodex')?repo:path.includes('/git/ref/')?{object:{type:'commit',sha:candidate}}:path.includes('/commits/')?[{...pr,merged_by:{login:'alexalok',type:'User'}}]:pr;
-  if(merged_by?.login==='alexalok' && merged_by?.type==='User')assert.equal(source(branch,candidate,read,AUTHORITY),'2.90.0');
-  else assert.throws(()=>source(branch,candidate,read,AUTHORITY),/must be merged by owner/);
+  if(['alexalok','jack-o-mania'].includes(merged_by?.login) && merged_by?.type==='User')assert.equal(source(branch,candidate,read,AUTHORITY),'2.90.0');
+  else assert.throws(()=>source(branch,candidate,read,AUTHORITY),/must be merged by an authorized release account/);
  }
 });
 test('fork qualification rejects writer or missing actors on otherwise approved evidence',async()=>{
@@ -128,7 +128,7 @@ test('production CLI rejects missing or writer authority before any GitHub reque
    encoding:'utf8',env:{PATH:'',GITHUB_REPOSITORY:'alexalok/opencodex',FORK_RELEASE_BRANCH:'releases/v2.90.0',...actors},
   });
   assert.equal(result.status,1);
-  assert.match(result.stderr,/dispatch and rerun require owner alexalok/);
+  assert.match(result.stderr,/dispatch and rerun require an authorized release account/);
   assert.doesNotMatch(result.stderr,/spawnSync gh|ENOENT/);
  }
 });
@@ -142,4 +142,9 @@ test('fork cannot enter any npm packaging or publishing job',()=>{
   const condition=job.split('\n').find(line=>line.trim().startsWith('if:'));
   assert.ok(!condition.includes('||'),name);
  }
+});
+
+test('owner-authorized release account can dispatch and rerun',()=>{
+ const {assertReleaseAuthority}=require('./fork-release.cjs');
+ for(const actor of ['alexalok','jack-o-mania']) for(const triggeringActor of ['alexalok','jack-o-mania']) assert.doesNotThrow(()=>assertReleaseAuthority({actor,triggeringActor}));
 });
