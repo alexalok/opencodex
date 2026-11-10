@@ -289,3 +289,37 @@ startup path must not import the manifest catalog or activate Compatibility Lab.
 Follow the testing policy above and run `bun run typecheck` for type changes, plus the checks
 required for the affected surface. Report the commands, results, and remaining untested scope;
 only claim the validation you actually completed.
+
+For `alexalok/opencodex`, owner `alexalok` and owner-authorized `jack-o-mania`
+may merge release sources, dispatch qualification and publish releases.
+Dispatch the trusted `dev` revision of `release.yml`
+with an explicit `release-branch`, exact `expected-sha`, and `version`. This
+supersedes dispatching the workflow itself from a release branch. The source
+must be the exact current tip of `releases/vX.Y.Z` and a merged PR commit on
+that branch. Runtime source never comes from current `dev`. Version mirrors
+remain committed on the release branch and each backport increases its patch;
+the workflow must not derive a newer upstream base or silently change that version.
+
+Select the highest published stable upstream base available for at least 168
+hours, using the later GitHub/npm publication time. The guard verifies the
+selected base's age, upstream-tag ancestry, and stable patch line. The operator
+must record highest-eligible-base selection and individually justified backports.
+The fork publishes GitHub releases and verified standalone/desktop assets only.
+It never publishes npm packages or changes npm dist-tags. Fork ordering considers
+only release-source ancestors; duplicate GitHub tags remain forbidden. npm is
+read only to establish the upstream base publication date, never to constrain
+the fork version against upstream `latest`.
+
+Backport the reviewed CI tooling when necessary and run manual `ci.yml` with
+`lane=all` from the exact merged release source. Evidence must match reviewed
+policy fingerprints. Service evidence is manually dispatched from trusted `dev`
+with the same source SHA and `release-branch`. Hosted macOS stays excluded from
+automatic runs; release qualification requires the complete manual evidence.
+
+Security review is performed externally through Codex Security Cloud. Record
+review reference and reviewed SHA before merge, resolve applicable findings, and
+do not substitute local tests or agent review. Publication hold remains unchanged.
+Fork resume is refused until a separately reviewed GitHub receipt/provenance policy
+is available. A partial tag or draft publication requires operator recovery; do
+not delete or overwrite it automatically. The shared workflow skips all npm jobs
+for this fork and publishes only after verifying the asset bundle.
