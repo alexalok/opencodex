@@ -261,6 +261,10 @@ only release-source ancestors; duplicate GitHub tags remain forbidden. npm is
 read only to establish the upstream base publication date, never to constrain
 the fork version against upstream `latest`.
 
+Fork qualification runs only on disposable GitHub-hosted runners; do not route
+release-source code to persistent self-hosted machines. Repository administrators
+must enforce runner access outside mutable workflow files as well.
+
 Backport the reviewed CI tooling when necessary and run manual `ci.yml` with
 `lane=all` from the exact merged release source. Evidence must match reviewed
 policy fingerprints. Service evidence is manually dispatched from trusted `dev`
