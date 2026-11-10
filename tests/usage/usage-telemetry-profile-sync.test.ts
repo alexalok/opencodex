@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +11,7 @@ import {
   disconnectTelemetryProfile,
   resetProfileServiceCachesForTests,
 } from "../../src/telemetry/profile/service";
+import * as profileState from "../../src/telemetry/profile/state";
 import { deleteTelemetryProfileFile, readTelemetryProfileFile, writeTelemetryProfileState } from "../../src/telemetry/profile/state";
 import { buildProfileDay, runProfileTick } from "../../src/telemetry/profile/sync";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
@@ -89,6 +90,37 @@ describe("opt-in public profile: client sync", () => {
   });
 
   const connect = () => connectTelemetryProfile({ handle: "Jun", displayName: "Jun", avatar: "blue" }, { configDir: home, env, now: CONNECT_AT });
+
+  for (const mode of ["unsaved", "saved", "replacement", "unreadable", "rollback-offline"] as const) {
+    test(`failed connect preserves saved state and rolls back its own unsaved secret (${mode})`, async () => {
+      const original = profileState.writeTelemetryProfileState;
+      const error = new Error("ENOSPC: synthetic credential write failure");
+      const replacementSecret = "ocxp_" + "B".repeat(43);
+      const originalRespond = respond;
+      if (mode === "rollback-offline") respond = call => {
+        if (call.method === "DELETE") throw new Error("collector offline");
+        return originalRespond(call);
+      };
+      const writer = spyOn(profileState, "writeTelemetryProfileState").mockImplementation((state, dir, now) => {
+        if (mode === "saved") original(state, dir, now);
+        if (mode === "replacement") original({ ...state, secret: replacementSecret }, dir, now);
+        if (mode === "unreadable") writeFileSync(telemetryProfilePath(home), "unreadable");
+        throw error;
+      });
+      try {
+        await expect(connect()).rejects.toBe(error);
+        const deletions = calls.filter(call => call.method === "DELETE");
+        const rollback = mode !== "saved" && mode !== "unreadable";
+        expect(deletions).toHaveLength(rollback ? 1 : 0);
+        if (rollback) expect(deletions[0]!.headers.authorization).toBe(`Bearer ${SECRET}`);
+        const file = readTelemetryProfileFile(home);
+        expect(file.state?.secret ?? null).toBe(mode === "saved" ? SECRET : mode === "replacement" ? replacementSecret : null);
+        expect(file.unreadable).toBe(mode === "unreadable");
+      } finally {
+        writer.mockRestore();
+      }
+    });
+  }
 
   test("a profile day carries only totals and model-family sums", () => {
     const built = buildProfileDay(aggregate("2026-11-06", [["anthropic", "claude-opus", 2, 100], ["openrouter", "claude-opus", 1, 10], ["openai", "gpt-6", 3, 5]]));

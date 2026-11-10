@@ -164,7 +164,17 @@ export async function connectTelemetryProfile(
     pendingDelete: false,
     revoked: false,
   };
-  writeTelemetryProfileState(state, configDir, now);
+  try {
+    writeTelemetryProfileState(state, configDir, now);
+  } catch (error) {
+    // An atomic writer can report failure after publication. Keep a saved credential usable;
+    // unreadable state is ambiguous, so never revoke it based only on the write exception.
+    const saved = readTelemetryProfileFile(configDir);
+    if (!saved.unreadable && saved.state?.secret !== state.secret) {
+      try { await deleteProfile(state.secret, options); } catch { /* retain the original write error */ }
+    }
+    throw error;
+  }
   rankCache = null;
   previewCache = null;
   return toPublicProfileState(state);
