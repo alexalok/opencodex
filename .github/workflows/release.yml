@@ -37,6 +37,7 @@ on:
 
 env:
   FORK_RELEASE_BRANCH: ${{ inputs.release-branch }}
+  OCX_DISABLE_MACOS_CI: ${{ vars.OCX_DISABLE_MACOS_CI }}
 
 permissions: {}
 
@@ -55,6 +56,8 @@ jobs:
       source_sha: ${{ steps.source.outputs.source_sha }}
       workflow_sha: ${{ steps.source.outputs.workflow_sha }}
       version: ${{ steps.version.outputs.version }}
+      standalone_matrix: ${{ steps.platforms.outputs.standalone_matrix }}
+      desktop_matrix: ${{ steps.platforms.outputs.desktop_matrix }}
     steps:
       - name: Checkout trusted workflow revision
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -173,6 +176,24 @@ jobs:
             appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\n`);
           '
 
+      - name: Select enabled release platforms
+        id: platforms
+        env:
+          DISABLE_MACOS: ${{ vars.OCX_DISABLE_MACOS_CI }}
+          STANDALONE_MATRIX: '{"include":[{"os":"ubuntu-latest","target":"bun-linux-x64","dependency_os":"linux","dependency_cpu":"x64","smoke":true},{"os":"macos-latest","target":"bun-darwin-arm64","dependency_os":"darwin","dependency_cpu":"arm64","smoke":true},{"os":"macos-latest","target":"bun-darwin-x64","dependency_os":"darwin","dependency_cpu":"x64","smoke":false},{"os":"windows-latest","target":"bun-windows-x64","dependency_os":"win32","dependency_cpu":"x64","smoke":true},{"os":"ubuntu-latest","target":"bun-linux-arm64","dependency_os":"linux","dependency_cpu":"arm64","smoke":false}]}'
+          DESKTOP_MATRIX: '{"include":[{"os":"macos-latest","target":"universal-apple-darwin","dependency_os":"darwin","dependency_cpu":"*","bundles":"app,dmg","sidecar-targets":"macos","artifact-suffixes":"macos.dmg,macos.app.tar.gz"},{"os":"windows-latest","target":"x86_64-pc-windows-msvc","dependency_os":"win32","dependency_cpu":"x64","bundles":"msi","sidecar-targets":"x86_64-pc-windows-msvc","artifact-suffixes":"windows-x64.msi"},{"os":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","dependency_os":"linux","dependency_cpu":"x64","bundles":"appimage,deb","sidecar-targets":"x86_64-unknown-linux-gnu","artifact-suffixes":"linux-x86_64.AppImage,linux-amd64.deb"}]}'
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const disabled = (process.env.DISABLE_MACOS || '').toLowerCase() === 'true';
+          for (const [key, variable] of [['standalone_matrix', 'STANDALONE_MATRIX'], ['desktop_matrix', 'DESKTOP_MATRIX']]) {
+            const matrix = JSON.parse(process.env[variable]);
+            matrix.include = matrix.include.filter(row => !disabled || row.dependency_os !== 'darwin');
+            if (!matrix.include.length) throw Error('empty release platform matrix');
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `${key}=${JSON.stringify(matrix)}\n`);
+          }
+          NODE
+
   # Every publication precondition the dispatch can already decide, checked before any runner
   # starts packaging: channel and dist-tag, every version source, the tag, the GitHub release,
   # npm and the global tag ordering (scripts/ci/release-preflight.sh).
@@ -237,33 +258,7 @@ jobs:
     if: ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev') && (github.repository != 'alexalok/opencodex' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania'))) }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: bun-linux-x64
-            dependency_os: linux
-            dependency_cpu: x64
-            smoke: true
-          - os: macos-latest
-            target: bun-darwin-arm64
-            dependency_os: darwin
-            dependency_cpu: arm64
-            smoke: true
-          - os: macos-latest
-            target: bun-darwin-x64
-            dependency_os: darwin
-            dependency_cpu: x64
-            smoke: false
-          - os: windows-latest
-            target: bun-windows-x64
-            dependency_os: win32
-            dependency_cpu: x64
-            smoke: true
-          - os: ubuntu-latest
-            target: bun-linux-arm64
-            dependency_os: linux
-            dependency_cpu: arm64
-            smoke: false
+      matrix: ${{ fromJSON(needs.validate-dispatch.outputs.standalone_matrix) }}
     runs-on: ${{ matrix.os }}
     # The Windows leg can wait up to an hour for a release-signing approval in SignPath.
     timeout-minutes: ${{ matrix.target == 'bun-windows-x64' && 90 || 25 }}
@@ -452,29 +447,7 @@ jobs:
     if: ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev') && (github.repository != 'alexalok/opencodex' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania'))) }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: macos-latest
-            target: universal-apple-darwin
-            dependency_os: darwin
-            dependency_cpu: "*"
-            bundles: app,dmg
-            sidecar-targets: macos
-            artifact-suffixes: macos.dmg,macos.app.tar.gz
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            dependency_os: win32
-            dependency_cpu: x64
-            bundles: msi
-            sidecar-targets: x86_64-pc-windows-msvc
-            artifact-suffixes: windows-x64.msi
-          - os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            dependency_os: linux
-            dependency_cpu: x64
-            bundles: appimage,deb
-            sidecar-targets: x86_64-unknown-linux-gnu
-            artifact-suffixes: linux-x86_64.AppImage,linux-amd64.deb
+      matrix: ${{ fromJSON(needs.validate-dispatch.outputs.desktop_matrix) }}
     runs-on: ${{ matrix.os }}
     # The Windows leg can wait up to an hour for a release-signing approval in SignPath.
     timeout-minutes: ${{ matrix.target == 'x86_64-pc-windows-msvc' && 105 || 45 }}
@@ -1230,6 +1203,7 @@ jobs:
           if [ "$UPDATER_SIGNING_CONFIGURED" = "true" ]; then
             args+=(--manifest-out dist/release/latest.json --require-signatures)
           fi
+          if [ "${OCX_DISABLE_MACOS_CI,,}" = true ]; then args+=(--exclude-macos); fi
           bun desktop/scripts/verify-release-assets.ts "${args[@]}"
 
       - name: Bind verified asset digests

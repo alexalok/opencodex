@@ -296,7 +296,10 @@ describe("packaged keyring native binding", () => {
     expect(release).toContain("ocx.exe,gui,keyring");
     expect(release).toContain("ocx gui keyring");
     expect(release).toContain("--os=${{ matrix.dependency_os }} --cpu=${{ matrix.dependency_cpu }}");
-    expect(release).toContain('dependency_cpu: "*"');
+    const workflow = Bun.YAML.parse(release) as { jobs: Record<string, { steps: Array<{ id?: string; env?: Record<string, string> }> }> };
+    const selector = workflow.jobs["validate-dispatch"]!.steps.find(step => step.id === "platforms")!;
+    const matrix = JSON.parse(selector.env!.DESKTOP_MATRIX!) as { include: Array<{ target: string; dependency_cpu: string }> };
+    expect(matrix.include.find(row => row.target === "universal-apple-darwin")?.dependency_cpu).toBe("*");
     expect(release).toContain("Verify the packaged universal macOS runtime");
     expect(release).toContain("keyring.darwin-arm64.node");
     expect(release).toContain("keyring.darwin-x64.node");

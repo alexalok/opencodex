@@ -35,12 +35,12 @@ line: this repository has current `dev` and versioned backports.
 - Fork releases publish only GitHub releases and verified assets. Never publish npm packages or change npm dist-tags.
 - Do not open upstream PRs unless the user explicitly requests one. Any such
   PR must target upstream `dev` only; never upstream `main` or `preview`.
-- Hosted macOS CI is off in this fork: pull requests, pushes and the nightly
-  schedule skip every `macos-latest` job and matrix leg. Run macOS validation
-  on demand with a manual `workflow_dispatch`. Keep the
-  `github.repository != 'alexalok/opencodex'` gates when syncing upstream
-  workflow changes; this overrides the upstream macOS coverage rule in
-  `.github/AGENTS.md` for automatic runs only.
+- Hosted macOS CI is disabled by repository variable `OCX_DISABLE_MACOS_CI=true`
+  across automatic and manual runs, including release packaging. Preserve this
+  override when syncing upstream workflows. It overrides upstream macOS coverage
+  requirements in `.github/AGENTS.md`; Linux and Windows remain required.
+  Clearing the flag restores manual macOS qualification and release assets;
+  automatic macOS jobs remain excluded in this fork.
 
 The fork owner's explicit integration request authorizes merging fork PRs after
 validation. It does not waive unresolved findings or security review. GitHub
@@ -565,8 +565,13 @@ must enforce runner access outside mutable workflow files as well.
 Backport the reviewed CI tooling when necessary and run manual `ci.yml` with
 `lane=all` from the exact merged release source. Evidence must match reviewed
 policy fingerprints. Service evidence is manually dispatched from trusted `dev`
-with the same source SHA and `release-branch`. Hosted macOS stays excluded from
-automatic runs; release qualification requires the complete manual evidence.
+with the same source SHA and `release-branch`. Repository variable
+`OCX_DISABLE_MACOS_CI=true` disables macOS on every event, including manual
+qualification and release packaging. Linux and Windows evidence remains mandatory;
+disabled macOS is not claimed as validated. Such releases contain only Linux and
+Windows assets and updater entries, with the same checksum and signature gates.
+When the flag is unset or false, manual qualification requires all three platforms.
+Preserve this override when synchronizing upstream workflows.
 
 Security review is performed externally through Codex Security Cloud. Record
 review reference and reviewed SHA before merge, resolve applicable findings, and
