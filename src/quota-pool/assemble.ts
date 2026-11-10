@@ -27,6 +27,7 @@ import type { ProviderQuota, ProviderQuotaWindow } from "../providers/quota-type
 import type { StoredAccountQuota } from "../codex/quota-types";
 import { isTerminalShortWindow, resetAtToMs } from "../codex/quota-types";
 import { runPassiveRead } from "../lib/passive-read";
+import { emailMaskingEnabled, projectEmail } from "../lib/privacy";
 import { packageVersion } from "../lib/package-version";
 import { listCodexAuthAccountsSnapshot } from "../codex/auth-api";
 import { latestCodexQuotaObservationSource } from "../codex/quota";
@@ -223,10 +224,15 @@ function reportSource(report: ProviderQuotaReport): QuotaPoolSource {
   return report.observed === true ? "header" : "measured";
 }
 
-/** An account row with its input to the provider's pooled windows. */
-interface TrackedAccount {
+/**
+ * An account row with its input to the provider's pooled windows, plus Home-local facts the GOAT
+ * contract never carries (`meta`). Only `src/quota-pool/tray.ts` reads `meta`.
+ */
+export interface TrackedAccount {
   account: QuotaPoolAccount;
   pool: PooledAccountInput;
+  /** `duplicateMain`: a stored pool row for the physical account the native main login also shows. */
+  meta: { accountId: string; alias?: string; email?: string; resetCredits?: number; duplicateMain?: true };
 }
 
 function codexAccounts(identity: QuotaPoolIdentity, accounts: Awaited<ReturnType<typeof listCodexAuthAccountsSnapshot>>["accounts"], now: number): TrackedAccount[] {
@@ -246,7 +252,18 @@ function codexAccounts(identity: QuotaPoolIdentity, accounts: Awaited<ReturnType
     if (typeof dto.plan === "string" && dto.plan.trim()) account.plan = dto.plan.trim();
     // A plan-excluded account and a duplicate of the main login are outside automatic routing.
     const eligible = !dto.paused && dto.needsReauth !== true && dto.selectionExcludedReason === undefined;
-    return { account, pool: { eligible, weight: codexCapacityWeight(dto.plan), windows } };
+    const resetCredits = dto.quota?.resetCredits;
+    return {
+      account,
+      pool: { eligible, weight: codexCapacityWeight(dto.plan), windows },
+      meta: {
+        accountId: dto.id,
+        ...(typeof dto.alias === "string" && dto.alias.trim() ? { alias: dto.alias.trim() } : {}),
+        ...(typeof dto.email === "string" && dto.email.trim() ? { email: dto.email.trim() } : {}),
+        ...(finite(resetCredits) && resetCredits >= 0 ? { resetCredits } : {}),
+        ...(dto.selectionExcludedReason === "duplicate_main" ? { duplicateMain: true as const } : {}),
+      },
+    };
   });
 }
 
@@ -254,7 +271,7 @@ function codexAccounts(identity: QuotaPoolIdentity, accounts: Awaited<ReturnType
  * Per-account OAuth providers have no calibrated plan-to-capacity table (the Codex weights describe
  * Codex plans only), so each routable account counts once.
  */
-function oauthAccounts(identity: QuotaPoolIdentity, provider: string, now: number): TrackedAccount[] {
+function oauthAccounts(identity: QuotaPoolIdentity, provider: string, now: number, maskEmails: boolean): TrackedAccount[] {
   const set = getAccountSet(provider);
   if (!set) return [];
   return set.accounts.map(row => {
@@ -270,7 +287,17 @@ function oauthAccounts(identity: QuotaPoolIdentity, provider: string, now: numbe
     };
     const failure = entry?.quotaFailure && entry.quotaFailureIsCurrent?.() === true ? parseQuotaFailureCode(entry.quotaFailure) : undefined;
     if (failure) account.failure = failure;
-    return { account, pool: { eligible: row.paused !== true && row.needsReauth !== true, weight: 1, windows } };
+    // Same projection the OAuth account routes apply; Codex rows arrive already projected.
+    const email = projectEmail(typeof row.credential.email === "string" ? row.credential.email.trim() : null, maskEmails);
+    return {
+      account,
+      pool: { eligible: row.paused !== true && row.needsReauth !== true, weight: 1, windows },
+      meta: {
+        accountId: row.id,
+        ...(typeof row.alias === "string" && row.alias.trim() ? { alias: row.alias.trim() } : {}),
+        ...(email ? { email } : {}),
+      },
+    };
   });
 }
 
@@ -297,6 +324,7 @@ function claudeCliAccounts(identity: QuotaPoolIdentity, provider: string, deps: 
       windows,
     },
     pool: { eligible: true, weight: 1, windows },
+    meta: { accountId: `claude-cli:${observation.identity}` },
   }];
 }
 
@@ -308,13 +336,28 @@ function enabled(provider: OcxProviderConfig | undefined): provider is OcxProvid
   return !!provider && provider.disabled !== true;
 }
 
-async function assemble(config: OcxConfig, identity: QuotaPoolIdentity, deps: QuotaPoolDeps): Promise<QuotaPool> {
-  const now = (deps.now ?? Date.now)();
+/** One configured provider as the pool sees it, before projection onto a wire shape. */
+export interface CollectedQuotaProvider {
+  name: string;
+  rows: TrackedAccount[];
+  /** Whether requests to this provider are served by `rows` (and so `windows` came from them). */
+  poolFromRows: boolean;
+  /** The pooled windows (`pooled.ts` over `rows`, or the held report where rows do not serve). */
+  windows: QuotaPoolWindow[];
+  report?: ProviderQuotaReport;
+}
+
+/**
+ * Every configured provider with account rows or a held report, with its pooled windows. Shared by
+ * `ocx.quota-pool/1` and the tray read; callers must already be inside `runPassiveRead`.
+ */
+export async function collectQuotaPoolProviders(config: OcxConfig, identity: QuotaPoolIdentity, now: number, deps: QuotaPoolDeps = {}): Promise<CollectedQuotaProvider[]> {
   const names = Object.keys(config.providers).filter(name => enabled(config.providers[name])).sort();
   const reports = new Map(heldProviderQuotaReports(names).reports.map(report => [report.provider, report]));
   const codexPool = hasCodexPoolProvider(config);
   const codex = codexPool ? (await (deps.codexSnapshot ?? listCodexAuthAccountsSnapshot)(config)).accounts : [];
-  const providers: QuotaPoolProvider[] = [];
+  const maskEmails = emailMaskingEnabled(config);
+  const providers: CollectedQuotaProvider[] = [];
   for (const name of names) {
     const provider = config.providers[name]!;
     let rows: TrackedAccount[] = [];
@@ -331,7 +374,7 @@ async function assemble(config: OcxConfig, identity: QuotaPoolIdentity, deps: Qu
       rows = claudeCliAccounts(identity, name, deps, now);
     } else if (supportsPerAccountQuota(name) || hasPassiveAccountQuota(name)) {
       tracked = true;
-      rows = oauthAccounts(identity, name, now);
+      rows = oauthAccounts(identity, name, now, maskEmails);
       poolFromRows = provider.authMode === "oauth";
     }
     const report = reports.get(name);
@@ -341,11 +384,19 @@ async function assemble(config: OcxConfig, identity: QuotaPoolIdentity, deps: Qu
     const windows = poolFromRows && (rows.length > 0 || provider.adapter === "claude-cli")
       ? pooledWindows(rows.map(row => row.pool), now)
       : report ? providerQuotaWindows(report.quota, reportSource(report), now) : [];
-    const pooled: QuotaPoolProvider["pooled"] = { windows };
-    const next = nextResetAt(windows);
-    if (next) pooled.nextResetAt = next;
-    providers.push({ provider: name, accounts: rows.map(row => row.account), pooled });
+    providers.push({ name, rows, poolFromRows: poolFromRows && rows.length > 0, windows, ...(report ? { report } : {}) });
   }
+  return providers;
+}
+
+async function assemble(config: OcxConfig, identity: QuotaPoolIdentity, deps: QuotaPoolDeps): Promise<QuotaPool> {
+  const now = (deps.now ?? Date.now)();
+  const providers: QuotaPoolProvider[] = (await collectQuotaPoolProviders(config, identity, now, deps)).map(collected => {
+    const pooled: QuotaPoolProvider["pooled"] = { windows: collected.windows };
+    const next = nextResetAt(collected.windows);
+    if (next) pooled.nextResetAt = next;
+    return { provider: collected.name, accounts: collected.rows.map(row => row.account), pooled };
+  });
   return {
     schema: QUOTA_POOL_SCHEMA,
     producer: { version: VERSION, role: role(config), homeId: identity.homeId },

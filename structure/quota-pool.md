@@ -17,6 +17,8 @@ every account quota this Home already holds. GOAT owns the decoder
   that carries `refresh`, `reload`, `force` or `quota`.
 - Hub client: the hub relay forwards `/api/machine/hub-relay/api/*` to the hub's management API
   with the caller's management credential, so the same path reaches the hub's read.
+- Tray: `GET /api/quota-pool/tray` serves `ocx.quota-tray/1` (see [Tray read](#tray-read)) under
+  the same authorization, and is in `LINK_MANAGEMENT_READ_PATHS` as well.
 
 ## Passive by construction
 
@@ -51,6 +53,47 @@ every caller, and reads only caches other paths filled:
 the hub relay against a pool account with an expired token and an empty provider-report cache. It
 fails on any fetch, process spawn or file write inside the read, on any change to the Home's files,
 and unless the Codex `pooled` windows are still computed from the account rows.
+
+## Tray read
+
+`src/quota-pool/tray.ts` builds `ocx.quota-tray/1` for the OpenCodexTray menu-bar app from the same
+collection (`collectQuotaPoolProviders`), inside `runPassiveRead`. The app renders it verbatim and
+computes no number itself, so every value it shows is here:
+
+- per provider: the pooled `5h` and `weekly` windows as `remainingPercent` (100 − pooled
+  `usedPercent`) with `resetsAt`, and the next capacity recovery of each (`nextRecoveryAt`,
+  `nextRecoveryPercent`). For account rows that is `pooledRecovery` in `pooled.ts`, the earliest
+  reset among live accounts with used capacity and the share of pooled weight it returns, the same
+  estimate `aggregateCodexPoolCapacity` reports; for a held report it is the report's aggregation,
+  else the whole used share at the report's reset;
+- `blocked` while the unscoped `availability` window exists (for a report: any exhausted unscoped
+  window), with `recoversAt` and the window (`5h`, `weekly` or `other`) that holds it:
+  `pooledBlockHolder` takes it from the same live eligible evidence as `availability`, the
+  last-resetting block of the account that recovers first; `resetCredits`, the sum over the accounts
+  except a stored pool row duplicating the main login (the same physical account);
+- per account: display `name` (alias, else email, else log label). Emails follow
+  `privacy.maskEmails` like every other account surface: Codex rows arrive projected from the
+  account list, and OAuth rows go through `projectEmail` here,
+  `plan`, `units` (the capacity weight above, Plus = 1), `state`, its own `5h` and `weekly`
+  windows, and `resetCredits` (`count` from the stored WHAM `available_count`).
+
+Times are epoch milliseconds. A provider appears when it has a pooled 5-hour or weekly window, a
+block, or account rows.
+
+Reset-credit expiry is not part of WHAM usage. `src/codex/reset-credit-expiry-memo.ts` remembers
+the soonest expiry from every reset-credit inspect this process makes (dashboard, auto-redeemer,
+tray), valid while its count matches the stored count and for `RESET_CREDIT_EXPIRY_MEMO_TTL_MS`
+(12 hours). The native main login's memo is also bound to the main identity generation its inspect
+authenticated under, so a different signed-in account never inherits it, and an inspect that
+finishes after a switch is dropped without touching the new identity's memo. After answering, the
+tray read may start a background inspect for a Codex account whose memo is missing or stale: one
+account at a time, at most once per `RESET_CREDIT_INSPECT_RETRY_MS` (1 hour) per account, outside
+the passive read. The native main login's retry window is keyed by its identity generation, so a
+new login is not held back by the previous one's attempt. A caller that is already passive (a
+Remote Link Child's relayed read) starts
+none. The response never waits on it. `tests/usage/quota-tray.test.ts` covers the shape, recovery
+parity with the dashboard aggregate, the block holder, masking, the memo identity binding, and the
+inspect bounds.
 
 ## Pooled windows
 
