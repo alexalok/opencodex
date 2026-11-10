@@ -43,7 +43,7 @@ async function approved(f: ReturnType<typeof fixture>, deps = depsFor(f)) {
 }
 function cli(f: ReturnType<typeof fixture>, args: string[]) {
   const result = spawnSync(Bun.which("node")!, [repoPath("bin", "ocx.mjs"), "system", "codex-cli-update", ...args, "--json"], {
-    cwd: repoRoot(), encoding: "utf8", env: f.env, timeout: 60_000,
+    cwd: f.root, encoding: "utf8", env: f.env, timeout: 60_000,
   });
   expect(result.error).toBeUndefined(); expect(result.status).toBe(0);
   return JSON.parse(result.stdout);
@@ -373,6 +373,14 @@ describe.skipIf(!posix)("Codex CLI private-prefix POSIX apply", () => {
     try {
       await waitForManagementServer(base, server.child, server.closed, server.output);
       session = await issueFixtureGuiSession(base);
+      for (const [scan, refusal] of [["active", "blocked_active_session"], ["unavailable", "blocked_process_state_unknown"]] as const) {
+        writeFileSync(join(f.root, "process-scan-state.json"), JSON.stringify({ scans: [scan] }));
+        const response = await fetch(`${base}/api/codex/cli-update/plan`, { headers: fixtureSessionHeaders(session) });
+        expect(response.ok).toBe(true);
+        expect(await response.json()).toMatchObject({ applicable: false, refusal });
+        expect(readFileSync(f.trace, "utf8")).toBe("");
+      }
+      writeFileSync(join(f.root, "process-scan-state.json"), JSON.stringify({ scans: ["empty", "empty", "empty"] }));
       const planResponse = await fetch(`${base}/api/codex/cli-update/plan`, { headers: fixtureSessionHeaders(session) });
       if (!planResponse.ok) throw new Error(`isolated production plan refused (${planResponse.status})`);
       const plan = await planResponse.json() as { schemaVersion?: number; applicable: boolean; refusal?: string | null;
@@ -475,11 +483,16 @@ describe.skipIf(!posix)("Codex CLI private-prefix POSIX apply", () => {
       const configDir = join(f.home, "ocx");
       const restartPlanId = "b".repeat(32);
       const oldOwner = await admitCodexCliUpdateJob({ requestId: "server-restart-owner-unknown-01", planId: restartPlanId, confirmed: true, configDir });
+      let signalOldOwnerStarted!: () => void;
+      const oldOwnerStarted = new Promise<void>(resolve => { signalOldOwnerStarted = resolve; });
       oldOwnerWork = runCodexCliUpdateJob(oldOwner.job.jobId, oldOwner.generation, () => new Promise(resolve => {
+        signalOldOwnerStarted();
         finishOldOwner = () => resolve({ outcome: "applied", reason: "verified_target", planId: restartPlanId,
           installedVersion: "1.0.0", targetVersion: "1.1.0", installerExitCode: 0, leaseRetained: false,
           verificationPid: null, cleanupErrors: [] });
       }), configDir);
+      // The callback starts only after the running record is persisted and its lock released.
+      await Promise.race([oldOwnerStarted, oldOwnerWork.then(() => { throw new Error("old owner failed to start"); })]);
       const oldOwnerStatus = await fetch(`${base}/api/codex/cli-update/jobs/${oldOwner.job.jobId}`, { headers: fixtureSessionHeaders(session) });
       const oldOwnerDto = await oldOwnerStatus.json() as Record<string, unknown>;
       if (!oldOwnerStatus.ok || oldOwnerDto.ownerState !== "unknown" || oldOwnerDto.status !== "ambiguous"

@@ -53,6 +53,8 @@ any other. The measured caps ship as registry
 keeps them; any other model uses 8. Declare a model's own cap with
 `modelCapabilities: { "mistral-small-2603": { mistralMaxImages: 8 } }` (an integer from 1 to
 1000). The declaration outranks the registry row, and PATCH `null` on the axis removes it.
+Only `image_url` parts with a nonempty string in `image_url` or `image_url.url` count toward the cap; this check does not validate URL syntax or reachability. Parts with missing, empty, or non-string image references that reach the limiter are replaced with `[image omitted: missing or malformed image URL]` in the outbound copy without consuming the cap, even when the valid-image count is below the cap. For translated Responses requests, the parser drops `input_image` blocks with no usable image URL or file ID before the limiter runs. A nonempty `file_id` without a nonempty `image_url` in message content or tool output is refused by the translated-adapter media guard before Mistral dispatch; inside a replayed `agent_message`, whose content the guard does not inspect, the parser instead emits an `[image: <file id>]` text marker that travels as ordinary text and does not consume the image cap.
+
 Pruning adds no separate upload or persistence. Images retained within the cap
 are sent to Mistral in the outbound request. Other destinations are unchanged.
 
@@ -371,7 +373,7 @@ Providers can expose a built-in shorthand, such as `agy` for `google-antigravity
 | `modelMaxOutputTokens?` | `Record<string, number>` | Positive per-model `openai-chat` fallback budgets; exact/pattern matches beat the provider default. |
 | `modelCosts?` | `Record<string, ProviderCostOverlay>` | Per-model display prices (USD per 1M tokens), keyed by that provider's exact upstream model id — not a provider identifier or a routed `provider/model` label, e.g. `{ "deepseek-v4-flash": { "input": 0.14, "output": 0.28, "cacheRead": 0.0028, "cacheWrite": 0 } }`. Any model id is a valid key — custom providers may target any OpenAI-compatible endpoint through the `openai-chat` adapter, and local or internal provider ids work even when they are absent from the built-in catalogs. User-configured prices win over the built-in catalogs in the Logs `~$` and Usage estimates; historical entries are repriced from the current overlay, so editing a price can move past totals. The fallback order is user `modelCosts` → exact official correction → jawcode catalog → expected-price overlay → model-level vendor fallback, and an explicit all-zero user entry means a known-zero estimate; delete that model entry to restore automatic pricing. All-zero catalog metadata still falls through. Each rate must be a non-negative finite number at most 1,000,000 (USD per 1M tokens); out-of-range rows are rejected by the management boundary and dropped on load. Display-time estimation only: overlays never affect routing, account selection, quotas, or billing. |
 | `headers?` | `Record<string, string>` | Extra upstream headers. For the classic OpenAI web-search sidecar, `x-openai-internal-codex-responses-lite` is removed case-insensitively after configured and selected headers are merged; other forwarded headers are preserved. Authorization, cookies, API-key headers, embedded newlines, and invalid names are rejected. Requests that ride the provider outbound wrapper — model discovery, connection tests, and other proxy-originated diagnostics such as the Ollama show probe — send `User-Agent: opencodex` unless a User-Agent is set here or by the provider preset. An experimental relay may negotiate earlier completed-tool delivery with `x-opencodex-tool-completion: block-stop-v1`; the embedding shell must supply authenticated durable turn membership, and the relay must acknowledge the same response header and implement exact call-bound completion markers. Leave it unset for other providers. Early delivery applies only to eligible structured calls; later errors or cancellation cannot retract a call already delivered. |
-| `forwardClientHeaders?` | `string[]` | `openai-responses` only: opt in to copying named inbound client metadata headers onto inference requests when the provider has not already set that header. Credential and transport-owned names such as `Authorization`, cookies, API-key headers, `Content-Type`, `Content-Length`, `Host`, and `x-oai-attestation` are rejected and also filtered at runtime. Header names are case-insensitive and may not repeat. `headers` remains authoritative; the existing caller `User-Agent` fallback still applies when neither surface sets one.  Supported names: `originator`, `x-client-request-id`, `x-codex-app-version`, `user-agent`; all other names are refused. |
+| `forwardClientHeaders?` | `string[]` | `openai-responses` only: opt in to copying named inbound client metadata headers onto inference requests when the provider has not already set that header. Credential and transport-owned names such as `Authorization`, cookies, API-key headers, `Content-Type`, `Content-Length`, `Host`, and `x-oai-attestation` are rejected and also filtered at runtime. Header names are case-insensitive and may not repeat. `headers` remains authoritative; the existing caller `User-Agent` fallback still applies when neither surface sets one.  Supported names: `originator`, `x-client-request-id`, `x-codex-app-version`, `user-agent`, `x-codex-window-id`, `x-codex-installation-id`; all other names are refused. |
 | `supportsNativeCompactionTrigger?` | `boolean` | `openai-responses` only: declare support for native v2 `compaction_trigger` input items. Defaults off for noncanonical gateways; preserves native compaction rather than requesting a portable text summary. Independent of the v1 endpoint and blob replay capabilities. |
 | `supportsNativeCompactEndpoint?` | `boolean` | `openai-responses` only: declare support for native v1 `POST /responses/compact`. Defaults off for custom gateways. Key/local/forward routes use the provider's Responses URL plus `/compact` and its normal transport authentication; OAuth keeps routed compaction and its existing credential lifecycle. Does not enable v2 triggers or grant official OpenAI identity. |
 | `decodesNativeCompactionBlobs?` | `boolean` | Declare that this destination can replay native, non-`ocx1:` compaction blobs. Independent of either generation capability; a known serving-provider mismatch still degrades foreign ciphertext. Enable only after testing compact and a subsequent turn on the same backend. |
@@ -388,6 +390,8 @@ Providers can expose a built-in shorthand, such as `agy` for `google-antigravity
 | `modelSuppressSyntheticMax?` | `Record<string, boolean>` | Catalog-only per-model switch. `true` prevents OpenCodex from adding a missing synthetic `max` rung while retaining a provider-declared `max` and continuing to add `ultra` to reasoning-capable ladders. A preserved row that already contains `max` keeps it until healthy discovery rebuilds that row, because the catalog does not persist whether an older `max` was synthetic. If a configured default names a suppressed missing `max`, the catalog falls back to the highest real rung below it. Codex uses the same ladder membership for the picker and explicit `spawn_agent` effort validation, so an explicit `max` spawn can fail client-side before proxy clamping; `ultra` remains the supported harness path. |
 | `modelSupportsReasoningSummaries?` | `Record<string, boolean>` | Set a model to `false` to stop advertising summaries and strip summary-delivery fields. |
 | `modelReasoningSummaryDelivery?` | `Record<string, "sequential" \| "sequential_cutoff" \| "concurrent" \| "concurrent_cutoff">` | Per-model Responses delivery enum; rewrites an existing delivery field. |
+| `thinkingDisplay?` | `"auto" \| "summarized" \| "updates" \| "omitted"` | Anthropic adaptive `thinking.display` policy for this provider. Unset and `auto` keep the built-in selection: native Claude Opus 5.5 on `api.anthropic.com` sends `updates` (progress commentary), and other adaptive models send `summarized`. `summarized` forces reasoning summaries for both. `updates` is honored only where the adapter already sent it — native Opus 5.5 — and is treated as `auto` for every other model. `omitted` sends adaptive thinking without a display field, matching hidden thinking; the stream then carries signature-only thinking blocks, so a Chat client sees only stream heartbeats during a long think. An explicit request `reasoning.summary` of `concise` or `detailed` still forces `summarized`. The dashboard provider editor and `PATCH /api/providers` accept `null` to clear it. `ocx config set providers.<name>.thinkingDisplay summarized` writes it directly. |
+| `modelThinkingDisplay?` | `Record<string, "auto" \| "summarized" \| "updates" \| "omitted">` | Per-model override of `thinkingDisplay`, keyed by the exact upstream model id (for example `claude-opus-5-5`). An entry always wins over the provider-wide value, including an explicit `auto` that returns one model to the built-in behavior; a model with no entry uses the provider value. The same value rules apply, including `updates` degrading to `auto` on models that never received that display. `PATCH /api/providers` merges entries and accepts `null` for one entry or the whole map to clear it. |
 | `modelAdapters?` | `Record<string, string>` | Per-model `openai-chat` or `openai-responses` wire override for mixed-wire gateways. Explicit entries beat registry defaults. The OpenCode Go preset selects Responses for `gpt-5.6-luna` while leaving sibling models on their documented wires; DeepSeek can select native Responses for `deepseek-v4-flash`; Alibaba Token Plan (Beijing) pins `qwen3.8-flash`, `qwen3.7-plus`, and `glm-5.3` to its native Responses API for Responses inbound only (live-verified on that gateway, including plaintext reasoning replay; Chat and Anthropic inbound stay on Chat, and the rest of the family can be opted in here); and GitHub Copilot declares Responses-only defaults for the following models (`gpt-5.3-codex`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.5`, `gpt-5.6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-6.1-sol`, `gpt-6.1-terra`, `gpt-6-astra`, `grok-4.5`, `grok-4.6`, `mai-code-1.1-flash`, `mai-code-1-flash-picker`) because those models reject `/chat/completions` for agent traffic. Models without a built-in default (for example `gpt-5.4-nano`) can be opted in here. Single-wire upstream pins and canonical ChatGPT forward reject overrides. |
 | xAI Chat Completions (dashboard / CLI) | switch | Grok 4.5/4.6 OAuth Responses requests default to Responses. Existing Chat overrides are migrated once on upgrade; later Chat choices are preserved. Turn on to select Chat for both models, off to select Responses. CLI: `ocx provider edit xai --xai-chat on` or `--xai-chat off` (running proxy required). Mixed means only one model currently uses Chat. Other overrides and tier policy stay unchanged. API-key and translated Chat/Anthropic defaults are unchanged. Grok 4.7 defaults to Responses on OAuth through its registry wire default and can use Chat through an explicit `modelAdapters["grok-4.7"] = "openai-chat"` override. |
 | `xaiResponsesXSearch?` | `boolean` | Disabled by default. On an xAI Responses destination, append the provider-hosted `x_search` declaration only when a live `web_search` tool survives final request normalization. Existing declarations are not duplicated, caller `tool_choice`/`allowed_tools` selectors are never widened, and this is separate from the web-search sidecar's `search.xSearch` options. |
@@ -745,8 +749,11 @@ restores the original native name only when the row's display name still matches
 override. A newer external display name is preserved subject to existing native metadata normalization;
 for example, Astra (`gpt-6-astra`) still replaces a non-pinned name with its pinned native name.
 The label overlay leaves model IDs, metadata (including capabilities), ordering,
-routed combo aliases, and account-qualified rows unchanged. This local catalog override does
-not relabel the HTTP model listings or virtual `*-pro` rows.
+routed combo aliases, and account-qualified rows unchanged. `GET /api/models` also exposes these
+labels for bare native rows, so client exports and the `ocx opencode` launcher use them.
+OpenCode keeps its existing suffix, for example `sol (native)`. Relaunch `ocx opencode` or
+refresh the managed integration to update its generated configuration. Without an override,
+existing export labels stay unchanged. `/v1/models` and virtual `*-pro` rows are unchanged.
 
 The effective label order is operator `modelDisplayNames`, then provider catalog metadata, then the
 normal `provider/model` fallback. The routed selector remains `xai/grok-4.6`, while the upstream
@@ -853,8 +860,8 @@ Explicit capability `false` and Responses caller-tier forwarding retain their ex
 ### Anthropic Fast (`anthropic-speed`)
 
 The built-in `anthropic` (stored Claude OAuth) and `anthropic-apikey` entries advertise Fast only
-for `claude-opus-5-5`, `claude-opus-5`, and `claude-opus-4-8`. Other Claude models are unclassified;
-the entries have no provider-wide Fast default.
+for `claude-fable-5-2`, `claude-opus-5-5`, `claude-opus-5`, and `claude-opus-4-8`. Other Claude models
+(including Fable 5 and 5.1) are unclassified; the entries have no provider-wide Fast default.
 
 Anthropic Fast is **off by default** because it spends usage credits (subscription) or fast-mode
 access (API) at 2x price. Turn it on per provider with the Off/On row on the dashboard Models page,
@@ -871,7 +878,8 @@ injection.
 
 Anthropic's `usage.speed` echo determines the outcome: `fast` confirms Fast, `standard` records a
 downgrade, and a missing echo is unconfirmed. Only confirmed Fast usage receives the 2x list-price
-estimate (Opus 5.5 $8 input / $40 output; Opus 5 and 4.8 $10 input / $50 output per million tokens).
+estimate (Fable 5.2 $16 input / $80 output; Opus 5.5 $8 input / $40 output; Opus 5 and 4.8 $10 input /
+$50 output per million tokens).
 If the first fast send is rejected because usage credits are required, an organization disabled Fast,
 the model rejects `speed`, or the fast pool is empty, the main adapter dispatch can make one budgeted
 standard-speed resend. Generic rate limits and capacity errors keep their usual handling. Subsequent
@@ -1961,39 +1969,6 @@ from the tool-call cache for those turns. Preserve their supplied reasoning for 
 
 ## Auto-pause permanently refused accounts
 
-`providers.<provider>.accountAutoPause` is opt-in and defaults to off. It applies to that
-provider's OAuth accounts, Codex pool accounts (including the main account in pool mode),
-and configured API-key pool entries. For example:
+See [Account auto-pause](/reference/configuration/account-auto-pause/) for opt-in refusal thresholds, account scope, pause persistence, and explicit resume behavior.
 
-```sh
-ocx config set providers.anthropic.accountAutoPause.enabled true
-ocx config set providers.anthropic.accountAutoPause.consecutiveFailures 2
-```
-
-`consecutiveFailures` is an integer from 1 to 100; omitting it uses 2. Only exact,
-account-scoped HTTP 401/403 refusals qualify: an organization forbidding OAuth, an inactive
-or expired subscription, an account denied API/Claude Code access or disabled by Google for a Terms of Service violation, or a downgrade to a free
-plan with no credits. A model permission error, expired access token, quota window, 429,
-5xx, malformed response or network failure never pauses an account.
-
-The counter is process-local, serialized per account, and resets on a successful HTTP
-response, explicit resume or a new login. Token refresh alone does not reset an OAuth
-account's streak. Transient errors leave the counter unchanged. Restarting the proxy clears
-counters; completed pauses, their fixed reason codes and timestamps persist. Independent
-proxy processes maintain independent counters. Changing, disabling or re-enabling the policy, disabling the provider,
-or changing its endpoint discards in-flight refusal observations, so a refusal from a request
-sent under the earlier policy can never pause an account afterwards. A refusal counts only for the credential that actually
-reached the upstream: when a local plugin rewrites the credential or destination of a send, that
-send never counts toward a pause. For Codex pool accounts this includes the workspace
-(`chatgpt-account-id`) the request was sent for.
-
-At the threshold, OpenCodex excludes the account using its existing pause mechanism and
-attempts an eligible sibling for the current request within the existing retry/send budget.
-Fixed Codex account selectors and account-bound uploaded files retain their restrictions.
-A pause never cancels already dispatched work or changes credentials. It emits one generic
-log line without account identifiers or upstream error text.
-
-`ocx account list <provider>` shows the pause reason. The dashboard's Paused badge exposes
-the reason and time. Use `ocx account resume <provider> <account-id-or-alias>` to clear the
-reason and allow selection again. On an API-key row, clicking Resume also activates the key.
-This policy never resumes an account automatically.
+For a custom Ark Kimi Responses provider, set `arkKimiResponsesModels` to an array of exact upstream model or endpoint IDs that reject encrypted-output includes and orphan reasoning replay. It is unset by default; use the upstream ID, not the display alias.
