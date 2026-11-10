@@ -124,6 +124,7 @@ export function writeTelemetryProfileState(
   state: TelemetryProfileState,
   configDir = getConfigDir(),
   now = Date.now(),
+  options: { exclusive?: boolean } = {},
 ): void {
   mkdirSync(configDir, { recursive: true, mode: 0o700 });
   const path = telemetryProfilePath(configDir);
@@ -134,7 +135,7 @@ export function writeTelemetryProfileState(
     if (day >= minKeepDay) sentDays[day] = at;
   }
   const payload: TelemetryProfileState = { ...state, version: 1, sentDays };
-  atomicWriteFileNoFollow(path, `${JSON.stringify(payload, null, 2)}\n`);
+  atomicWriteFileNoFollow(path, `${JSON.stringify(payload, null, 2)}\n`, undefined, {}, options);
 }
 
 /**

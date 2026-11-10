@@ -165,7 +165,7 @@ export async function connectTelemetryProfile(
     revoked: false,
   };
   try {
-    writeTelemetryProfileState(state, configDir, now);
+    writeTelemetryProfileState(state, configDir, now, { exclusive: true });
   } catch (error) {
     // An atomic writer can report failure after publication. Keep a saved credential usable;
     // unreadable state is ambiguous, so never revoke it based only on the write exception.
