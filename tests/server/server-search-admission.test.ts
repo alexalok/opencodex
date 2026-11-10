@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { setCodexAccountPaused } from "../../src/codex/account-pause";
 import { saveCodexAccountCredential } from "../../src/codex/account-store";
 import { clearAccountNeedsReauth, clearAccountQuota } from "../../src/codex/auth-api";
+import { flushNativeMainStartupReleases, waitForNativeMainStartupGate } from "../../src/codex/native-profile-startup";
 import { clearCodexUpstreamHealth, clearThreadAccountMap } from "../../src/codex/routing";
 import { loadConfig, saveConfig } from "../../src/config";
 import { flushConfigDirHardeningForTests } from "../../src/config/paths";
@@ -60,6 +61,7 @@ afterEach(async () => {
   clearAccountQuota();
   for (const accountId of ["pool-a", "pool-b"]) clearAccountNeedsReauth(accountId);
   clearRequestLogsForTests();
+  await flushNativeMainStartupReleases();
   await flushConfigDirHardeningForTests();
   codexHome?.restore();
   codexHome = undefined;
@@ -117,7 +119,8 @@ function start(config = poolConfig()): void {
   server = startServer(0);
 }
 
-function search(headers: Record<string, string> = {}, model = MODEL): Promise<Response> {
+async function search(headers: Record<string, string> = {}, model = MODEL): Promise<Response> {
+  await waitForNativeMainStartupGate();
   return fetch(`http://127.0.0.1:${server!.port}/v1/alpha/search`, {
     method: "POST",
     headers: { "content-type": "application/json", ...headers },
