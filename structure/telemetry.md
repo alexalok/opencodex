@@ -182,7 +182,9 @@ with `gui/src/telemetry-profile-api.ts`, and `docs-site/src/components/Telemetry
   to `/v1/profiles*` with a bearer secret on their own timer.
 - **State.** `<OPENCODEX_HOME>/telemetry-profile.json` (atomic no-follow write, `0600`, recorded for uninstall) holds the
   handle, display name, avatar, secret, connect day, sent days and `pendingDelete`/`revoked`. An unreadable file
-  sends nothing. A failed connect write rolls back the newly created collector profile only when re-reading
+  sends nothing. Initial connect publishes with atomic exclusive creation (fsynced private temp, no-replace
+  hard link), so simultaneous CLI/dashboard processes cannot overwrite another credential. The losing
+  connect rolls back only its newly created collector profile. A failed connect write rolls back the newly created collector profile only when re-reading
   local state confirms its secret was not saved; matching or unreadable state is preserved. Remote rollback
   is best effort if the collector is unavailable, and the original write error remains visible. No API response, CLI output or GUI view carries the secret (`toPublicProfileState`).
 - **Sync.** `src/telemetry/profile/sync.ts` sends at most one day per tick, chosen by

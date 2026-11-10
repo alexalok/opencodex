@@ -91,6 +91,59 @@ describe("opt-in public profile: client sync", () => {
 
   const connect = () => connectTelemetryProfile({ handle: "Jun", displayName: "Jun", avatar: "blue" }, { configDir: home, env, now: CONNECT_AT });
 
+  test("two processes connecting different handles publish one credential and roll back only the loser", async () => {
+    const worker = join(home, "connect-race.ts");
+    writeFileSync(worker, `
+      import { spyOn } from "bun:test";
+      import { writeFileSync, existsSync } from "node:fs";
+      import * as state from ${JSON.stringify(repoPath("src/telemetry/profile/state.ts"))};
+      import { connectTelemetryProfile } from ${JSON.stringify(repoPath("src/telemetry/profile/service.ts"))};
+      const [home, id] = process.argv.slice(2);
+      const secret = "ocxp_" + id.repeat(43);
+      const original = state.writeTelemetryProfileState;
+      spyOn(state, "writeTelemetryProfileState").mockImplementation((...args) => {
+        writeFileSync(home + "/ready-" + id, "ready");
+        const deadline = Date.now() + 10000;
+        while (!existsSync(home + "/release")) {
+          if (Date.now() > deadline) throw new Error("publication barrier timeout");
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+        }
+        return original(...args);
+      });
+      const fetcher = async (_url, init) => {
+        if (init.method === "DELETE") {
+          writeFileSync(home + "/deleted-" + id, new Headers(init.headers).get("authorization"));
+          return Response.json({ ok: true });
+        }
+        return Response.json({ ok: true, profile: { handle: "user-" + id.toLowerCase(), displayName: id, avatar: "blue" }, secret }, { status: 201 });
+      };
+      try {
+        await connectTelemetryProfile({ handle: "user-" + id.toLowerCase(), displayName: id, avatar: "blue" }, { configDir: home, env: {}, fetch: fetcher, baseUrl: "https://collector.test" });
+        writeFileSync(home + "/won-" + id, "won");
+      } catch (error) { console.error(String(error)); writeFileSync(home + "/lost-" + id, "lost"); }
+    `);
+    const children = ["A", "B"].map(id => Bun.spawn([process.execPath, worker, home, id], { env: { ...process.env, OPENCODEX_HOME: home }, stdout: "pipe", stderr: "pipe" }));
+    try {
+      const deadline = Date.now() + 10000;
+      while (!["A", "B"].every(id => existsSync(join(home, "ready-" + id)))) {
+        if (Date.now() > deadline) { for (const child of children) child.kill(); throw new Error("connect workers did not reach publication barrier: " + (await Promise.all(children.map(child => new Response(child.stderr).text()))).join("; ")); }
+        await Bun.sleep(10);
+      }
+      writeFileSync(join(home, "release"), "release");
+      expect(await Promise.all(children.map(child => child.exited))).toEqual([0, 0]);
+      const winner = ["A", "B"].filter(id => existsSync(join(home, "won-" + id)));
+      expect(winner).toHaveLength(1);
+      const loser = winner[0] === "A" ? "B" : "A";
+      expect(readTelemetryProfileFile(home).state?.secret).toBe("ocxp_" + winner[0]!.repeat(43));
+      expect(existsSync(join(home, "deleted-" + winner[0]))).toBe(false);
+      expect(readFileSync(join(home, "deleted-" + loser), "utf8")).toBe("Bearer ocxp_" + loser.repeat(43));
+      expect(readdirSync(home).filter(name => name.endsWith(".tmp"))).toEqual([]);
+    } finally {
+      for (const child of children) child.kill();
+      await Promise.all(children.map(child => child.exited));
+    }
+  }, 20000);
+
   for (const mode of ["unsaved", "saved", "replacement", "unreadable", "rollback-offline"] as const) {
     test(`failed connect preserves saved state and rolls back its own unsaved secret (${mode})`, async () => {
       const original = profileState.writeTelemetryProfileState;
