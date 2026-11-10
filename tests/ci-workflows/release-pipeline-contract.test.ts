@@ -290,7 +290,7 @@ describe("release pipeline contract", () => {
     expect(needsOf(verify)).toContain("package-npm");
     expect(verify?.permissions).toEqual({ contents: "read", actions: "read", "pull-requests": "read" });
     expect(verify?.steps?.find(step => step.name === "Create verified npm receipt")?.run).toContain("sha256");
-    expect(verify?.if).toBe("${{ (github.repository != 'alexalok/opencodex' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok')) }}");
+    expect(verify?.if).toBe("${{ github.repository != 'alexalok/opencodex' }}");
   });
 
   test.skipIf(process.platform === "win32")("trusted npm receipt creation rejects missing or wrong package gitHead", () => {
@@ -663,7 +663,7 @@ describe("release pipeline contract", () => {
 
     const attach = release.jobs?.["attach-release"];
     expect(attach).toBeDefined();
-    expect(needsOf(attach).sort()).toEqual(["publish", "validate-dispatch", "verify-release"]);
+    expect(needsOf(attach).sort()).toEqual(["fork-publish", "publish", "validate-dispatch", "verify-release"]);
   });
 
   test("attach uploads only the verified bundle, and only after requiring its receipt", () => {

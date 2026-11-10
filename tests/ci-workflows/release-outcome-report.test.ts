@@ -52,7 +52,7 @@ describe("release outcome wiring", () => {
             const actual = evaluate({ repository, actor, triggering_actor }, {
               validateDispatch: { result: validated }, publish: { result: publish }, "attach-release": { result: "skipped" },
             }, { dryRun }, () => true);
-            expect(actual).toBe(validated === "success" && !dryRun && (repository !== "alexalok/opencodex" || (actor === "alexalok" && triggering_actor === "alexalok")));
+            expect(actual).toBe(validated === "success" && !dryRun && repository !== "alexalok/opencodex");
           }
         }
       }
@@ -61,7 +61,7 @@ describe("release outcome wiring", () => {
 
   test("a read-only job reports after publish and attach when dispatch validation succeeded", () => {
     expect(outcomes?.needs).toEqual(["validate-dispatch", "publish", "attach-release"]);
-    expect(outcomes?.if).toBe("${{ (always() && needs.validate-dispatch.result == 'success' && inputs.dry-run != true) && (github.repository != 'alexalok/opencodex' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok')) }}");
+    expect(outcomes?.if).toBe("${{ github.repository != 'alexalok/opencodex' && always() && needs.validate-dispatch.result == 'success' && inputs.dry-run != true }}");
     expect(outcomes?.permissions).toEqual({ contents: "read" });
     expect(report?.run?.trim()).toBe("bash scripts/ci/release-outcome-report.sh");
     expect(report?.env).toMatchObject({

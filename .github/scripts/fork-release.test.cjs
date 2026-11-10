@@ -17,11 +17,10 @@ test('availability uses later official publication and full 168 hours',()=>{
  assert.throws(()=>validateAge({...release,prerelease:true},npm,'2.90.0',now));
  assert.throws(()=>validateAge(release,{...npm,time:{}},'2.90.0',now));
 });
-test('fork patch line cannot jump upstream base or lower npm latest',()=>{
- validateVersion('2.90.0','2.90.3','2.90.2');
- for(const v of ['2.91.0','2.89.9','2.90.1-preview.1']) assert.throws(()=>validateVersion('2.90.0',v,'2.90.0'));
- assert.throws(()=>validateVersion('2.90.0','2.90.3','2.91.0'));
- assert.throws(()=>validateVersion('2.90.0','2.90.3',undefined));
+test('GitHub-only fork patch line is independent of npm latest',()=>{
+ validateVersion('2.96.0','2.96.5');
+ validateVersion('2.96.0','2.96.5','2.100.0');
+ for(const v of ['2.97.0','2.95.9','2.96.1-preview.1']) assert.throws(()=>validateVersion('2.96.0',v));
 });
 
 test('source fails closed on wrong repository, moving branch, or unmerged source',()=>{
@@ -131,5 +130,16 @@ test('production CLI rejects missing or writer authority before any GitHub reque
   assert.equal(result.status,1);
   assert.match(result.stderr,/dispatch and rerun require owner alexalok/);
   assert.doesNotMatch(result.stderr,/spawnSync gh|ENOENT/);
+ }
+});
+
+test('fork cannot enter any npm packaging or publishing job',()=>{
+ const workflow=require('node:fs').readFileSync(require('node:path').join(__dirname,'../workflows/release.yml'),'utf8');
+ for(const name of ['package-npm','verify-npm','publish']) {
+  const job=workflow.split(`\n  ${name}:\n`)[1]?.split(/\n  [a-z][a-z-]*:\n/)[0];
+  assert.ok(job,name);
+  assert.match(job,/if: \$\{\{.*github.repository != 'alexalok\/opencodex'/,name);
+  const condition=job.split('\n').find(line=>line.trim().startsWith('if:'));
+  assert.ok(!condition.includes('||'),name);
  }
 });

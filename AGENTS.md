@@ -31,6 +31,9 @@ line: this repository has current `dev` and versioned backports.
   newest published, non-prerelease upstream release at least seven full days old
   when starting a new local installation line. Preserve configuration and a
   verified rollback path during upgrades.
+- Fork releases are GitHub-only: never publish an npm package or modify npm
+  dist-tags. The trusted release workflow builds and verifies standalone/desktop
+  assets; upstream npm versions do not constrain fork release numbering.
 - Keep `dev`, `alex/*`, and active `releases/*` branches. Delete merged
   `backports/*` branches after their commits are retained on the release line.
 - Do not open upstream PRs unless the user explicitly requests one. Any such

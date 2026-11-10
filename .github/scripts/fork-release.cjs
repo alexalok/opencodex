@@ -17,9 +17,8 @@ function validateAge(release, registry, base, now = Date.now()) {
   const githubDate = Date.parse(release.published_at), npmDate = Date.parse(registry.time?.[base]);
   must(Number.isFinite(githubDate) && Number.isFinite(npmDate) && Number.isFinite(now) && now - Math.max(githubDate,npmDate) >= 168 * 3600000, 'upstream base availability must be verifiable and at least 168 hours old');
 }
-function validateVersion(base, version, latest) {
+function validateVersion(base, version) {
   must(/^\d+\.\d+\.\d+$/.test(version || '') && version.split('.').slice(0,2).join('.') === base.split('.').slice(0,2).join('.') && compareVersions(version,base) >= 0, 'fork version must remain on selected base patch line');
-  must(typeof latest === 'string' && compareVersions(version,latest) >= 0, 'fork version would downgrade npm latest or latest is unverifiable');
 }
 function validateOrdering(version, tags) {
   for (const tag of tags) {
@@ -91,8 +90,7 @@ async function history(branch,candidate,version) {
   const npm = await registry();
   const release = api(`repos/lidge-jun/opencodex/releases/tags/v${base}`);
   validateAge(release,npm,base);
-  validateVersion(base,version,npm['dist-tags']?.latest);
-  must(!npm.versions[version],'fork package version already exists');
+  validateVersion(base,version);
   // Git checkout must contain full candidate ancestry; missing objects fail closed.
   const upstreamTag = api(`repos/lidge-jun/opencodex/commits/v${base}`).sha;
   must(SHA.test(upstreamTag),'invalid upstream base SHA');

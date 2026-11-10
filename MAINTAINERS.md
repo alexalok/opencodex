@@ -244,10 +244,11 @@ Select the highest published stable upstream base available for at least 168
 hours, using the later GitHub/npm publication time. The guard verifies the
 selected base's age, upstream-tag ancestry, and stable patch line. The operator
 must record highest-eligible-base selection and individually justified backports.
-Fork ordering considers only release-source ancestors, while duplicate versions
-and moving npm `latest` backwards remain forbidden. The shared
-`@bitkyc08/opencodex` namespace may therefore block an otherwise age-eligible
-fork release; that refusal is not permission to change namespace or publication policy.
+The fork publishes GitHub releases and verified standalone/desktop assets only.
+It never publishes npm packages or changes npm dist-tags. Fork ordering considers
+only release-source ancestors; duplicate GitHub tags remain forbidden. npm is
+read only to establish the upstream base publication date, never to constrain
+the fork version against upstream `latest`.
 
 Backport the reviewed CI tooling when necessary and run manual `ci.yml` with
 `lane=all` from the exact merged release source. Evidence must match reviewed
@@ -258,5 +259,7 @@ automatic runs; release qualification requires the complete manual evidence.
 Security review is performed externally through Codex Security Cloud. Record
 review reference and reviewed SHA before merge, resolve applicable findings, and
 do not substitute local tests or agent review. Publication hold remains unchanged.
-Fork resume is refused until a separately reviewed fork receipt/provenance policy
-is available; never retry an acknowledged npm publication as a fresh release.
+Fork resume is refused until a separately reviewed GitHub receipt/provenance policy
+is available. A partial tag or draft publication requires operator recovery; do
+not delete or overwrite it automatically. The shared workflow skips all npm jobs
+for this fork and publishes only after verifying the asset bundle.
