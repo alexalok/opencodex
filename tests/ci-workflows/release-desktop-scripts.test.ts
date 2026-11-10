@@ -507,8 +507,8 @@ describe("widget extension signing", () => {
     expect(prepare?.run).toContain('windows-installer-config.ts "$RELEASE_VERSION" "$RUNNER_TEMP/opencodex-msi.json"');
     const build = steps.find(step => step.name === "Build desktop bundles");
     expect(build?.run).toContain("--config");
-    expect(build?.run).toContain("format('{0}/opencodex-msi.json', runner.temp)");
-    expect(build?.run).toContain("runner.os == 'Windows'");
+    expect(build?.run).toContain('--config "${{ runner.temp }}/opencodex-release.json"');
+    expect(steps.find(step => step.name === "Prepare desktop release config")?.run).toContain("process.env.RUNNER_OS === 'Windows'");
     expect(indexOfStep("Prepare Windows installer version")).toBeLessThan(indexOfStep("Build desktop bundles"));
   });
 

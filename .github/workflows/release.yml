@@ -686,6 +686,24 @@ jobs:
           RELEASE_VERSION: ${{ needs.validate-dispatch.outputs.version }}
         run: bun desktop/scripts/windows-installer-config.ts "$RELEASE_VERSION" "$RUNNER_TEMP/opencodex-msi.json"
 
+      - name: Prepare desktop release config
+        shell: bash
+        env:
+          UPDATER_SIGNING_CONFIGURED: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs'), path = require('node:path');
+          const root = process.env.RUNNER_TEMP;
+          const config = process.env.RUNNER_OS === 'Windows'
+            ? JSON.parse(fs.readFileSync(path.join(root, 'opencodex-msi.json'), 'utf8')) : {};
+          if (process.env.GITHUB_REPOSITORY === 'alexalok/opencodex'
+              && process.env.RUNNER_OS !== 'macOS'
+              && process.env.UPDATER_SIGNING_CONFIGURED === 'false') {
+            config.bundle = { ...config.bundle, createUpdaterArtifacts: false };
+          }
+          fs.writeFileSync(path.join(root, 'opencodex-release.json'), JSON.stringify(config), { mode: 0o600 });
+          NODE
+
       - name: Preserve the compiled Linux sidecar
         if: runner.os == 'Linux'
         run: |
@@ -693,8 +711,8 @@ jobs:
           echo "PATCHELF=$GITHUB_WORKSPACE/desktop/scripts/appimage-patchelf.py" >> "$GITHUB_ENV"
 
       # Release signing is intentionally secret-gated. Developer ID, notarization,
-      # and updater signatures require maintainer-owned credentials; builds without
-      # those secrets remain useful for local validation but are not release assets.
+      # and updater signatures require maintainer-owned credentials. The fork permits
+      # Linux/Windows installers without updater signatures when no key is configured.
       - name: Build desktop bundles
         if: runner.os != 'Linux'
         working-directory: desktop
@@ -710,7 +728,7 @@ jobs:
           MACOS_SIGN_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         # linuxdeploy suppresses its own stderr at the default verbosity. Keep
         # diagnostics on the first attempt; Apple signing commands stay non-verbose.
-        run: bunx tauri ${{ runner.os == 'Linux' && '--verbose' || '' }} build --ci --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config "${{ runner.os == 'Windows' && format('{0}/opencodex-msi.json', runner.temp) || '{}' }}"
+        run: bunx tauri ${{ runner.os == 'Linux' && '--verbose' || '' }} build --ci --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config "${{ runner.temp }}/opencodex-release.json"
 
       # The Windows installer goes to SignPath after the build and before the asset rename, so the
       # renamed asset, its checksum and its updater signature all describe the signed MSI. The
@@ -805,7 +823,7 @@ jobs:
           CARGO_TARGET_DIR: ${{ runner.temp }}/opencodex-appimage-target
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: bunx tauri build --ci --target ${{ matrix.target }} --bundles appimage
+        run: bunx tauri build --ci --target ${{ matrix.target }} --bundles appimage --config "${{ runner.temp }}/opencodex-release.json"
 
       - name: Build Linux deb bundle
         if: runner.os == 'Linux'
@@ -814,7 +832,7 @@ jobs:
           CARGO_TARGET_DIR: ${{ runner.temp }}/opencodex-deb-target
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: bunx tauri build --ci --target ${{ matrix.target }} --bundles deb
+        run: bunx tauri build --ci --target ${{ matrix.target }} --bundles deb --config "${{ runner.temp }}/opencodex-release.json"
 
       - name: Stage isolated Linux release bundles
         if: runner.os == 'Linux'
