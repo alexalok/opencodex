@@ -911,3 +911,36 @@ test("release platform selection preserves defaults and excludes only macOS when
     }
   } finally { removeTreeWithRetry(directory); }
 });
+
+test("fork desktop config disables updater artifacts only without a key on Linux or Windows", () => {
+  const release = readWorkflow(".github", "workflows", "release.yml");
+  const steps = release.jobs?.["package-desktop"]?.steps ?? [];
+  const prepare = steps.find(step => step.name === "Prepare desktop release config");
+  expect(prepare).toBeDefined();
+  expect(prepare!.env?.UPDATER_SIGNING_CONFIGURED).toBe("${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}");
+  const directory = mkdtempSync(join(tmpdir(), "release-updater-config-"));
+  try {
+    for (const repository of ["alexalok/opencodex", "lidge-jun/opencodex"]) {
+      for (const os of ["Linux", "Windows", "macOS"]) {
+        for (const configured of ["true", "false"]) {
+          const windows = { bundle: { windows: { wix: { version: "2.96.5" } } } };
+          writeFileSync(join(directory, "opencodex-msi.json"), JSON.stringify(windows));
+          const node = prepare!.run!.split("node - <<'NODE'\n")[1]!.split("\nNODE")[0]!;
+          const result = Bun.spawnSync(["node", "-e", node], {
+            env: releaseTestEnv({ PATH: process.env.PATH!, RUNNER_TEMP: directory, RUNNER_OS: os,
+              GITHUB_REPOSITORY: repository, UPDATER_SIGNING_CONFIGURED: configured }),
+          });
+          expect(result.exitCode, result.stderr.toString()).toBe(0);
+          const config = JSON.parse(readFileSync(join(directory, "opencodex-release.json"), "utf8"));
+          const unsigned = repository === "alexalok/opencodex" && os !== "macOS" && configured === "false";
+          expect(config.bundle?.createUpdaterArtifacts).toBe(unsigned ? false : undefined);
+          expect(config.bundle?.windows).toEqual(os === "Windows" ? windows.bundle.windows : undefined);
+        }
+      }
+    }
+    for (const name of ["Build desktop bundles", "Build Linux AppImage bundle", "Build Linux deb bundle"]) {
+      expect(steps.find(step => step.name === name)?.run).toContain('--config "${{ runner.temp }}/opencodex-release.json"');
+      expect(steps.findIndex(step => step.name === "Prepare desktop release config")).toBeLessThan(steps.findIndex(step => step.name === name));
+    }
+  } finally { removeTreeWithRetry(directory); }
+});
