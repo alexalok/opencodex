@@ -160,3 +160,47 @@ export function pooledWindows(accounts: readonly PooledAccountInput[], now: numb
   }
   return out;
 }
+
+/**
+ * The next capacity recovery of window `id` over the same live accounts `pooledWindows` averages:
+ * the earliest reset among accounts with used capacity, and the share of the pool's weighted
+ * capacity (Σ weight over accounts with a reading) that comes back then. The same estimate
+ * `aggregateCodexPoolCapacity` reports as `nextRecoveryAt` / `nextRecoveryPercent`.
+ */
+export function pooledRecovery(accounts: readonly PooledAccountInput[], id: string, now: number): { at: number; percent: number } | undefined {
+  let totalWeight = 0;
+  const recoveries = new Map<number, number>();
+  for (const account of accounts) {
+    if (!account.eligible || !Number.isFinite(account.weight) || account.weight <= 0) continue;
+    const window = account.windows.find(candidate => candidate.id === id && candidate.usedPercent !== undefined && current(candidate, now));
+    if (!window) continue;
+    totalWeight += account.weight;
+    const reset = timeMs(window.resetsAt);
+    const consumed = account.weight * window.usedPercent! / 100;
+    if (reset !== undefined && consumed > 0) recoveries.set(reset, (recoveries.get(reset) ?? 0) + consumed);
+  }
+  if (totalWeight === 0 || recoveries.size === 0) return undefined;
+  const at = Math.min(...recoveries.keys());
+  return { at, percent: Math.min(100, recoveries.get(at)! / totalWeight * 100) };
+}
+
+/**
+ * The window id that holds the pool-wide block until its first recovery, from the same live
+ * eligible evidence `availability` reads: the last-resetting unscoped exhausted window of an
+ * account that recovers first. Undefined when the pool is not blocked or that moment is unknown.
+ */
+export function pooledBlockHolder(accounts: readonly PooledAccountInput[], now: number): string | undefined {
+  let first: { at: number; id: string } | undefined;
+  for (const account of accounts) {
+    if (!account.eligible || !Number.isFinite(account.weight) || account.weight <= 0) continue;
+    const blocks = account.windows.filter(window => current(window, now) && window.exhausted === true && window.scopeModel === undefined);
+    if (blocks.length === 0) return undefined;
+    let last: { at: number; id: string } | undefined;
+    for (const block of blocks) {
+      const at = timeMs(block.resetsAt) ?? Number.POSITIVE_INFINITY;
+      if (!last || at > last.at) last = { at, id: block.id };
+    }
+    if (Number.isFinite(last!.at) && (!first || last!.at < first.at)) first = last;
+  }
+  return first?.id;
+}

@@ -4,10 +4,13 @@ export const CODEX_CONFIGURED_CAPACITY_WEIGHTS = {
   plus: 1,
   team: 1,
   business: 1,
-  prolite: 5,
+  // Pro tiers relative to Plus: Pro $100 (`prolite`) 10x, Pro $200 (`pro`) 20x, Pro $500
+  // (`promax`) 50x. Plan identifiers match codex-rs/protocol/src/auth.rs.
+  prolite: 10,
   // Business Premium has 5x Standard included usage; this is display calibration only (#7440).
   self_serve_business_prolite: 5,
   pro: 20,
+  promax: 50,
 } as const;
 
 /**

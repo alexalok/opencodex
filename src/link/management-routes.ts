@@ -30,6 +30,7 @@ export const LINK_MANAGEMENT_READ_PATHS: readonly string[] = [
   "/api/v2",
   "/api/provider-quotas",
   "/api/quota-pool",
+  "/api/quota-pool/tray",
   "/api/fallback",
   "/api/codex-auth/active",
   "/api/codex-auth/accounts",
