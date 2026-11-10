@@ -3,7 +3,7 @@
 // Fork policy runs from the trusted dev workflow checkout, never from the candidate.
 const {execFileSync} = require('node:child_process');
 const {compareVersions} = require('./release-history.cjs');
-const FORK = 'alexalok/opencodex', ID = 1361227105, RELEASE_OWNER = 'alexalok';
+const FORK = 'alexalok/opencodex', ID = 1361227105, RELEASE_ACTORS = new Set(['alexalok', 'jack-o-mania']);
 const SHA = /^[0-9a-f]{40}$/;
 const BRANCH = /^releases\/v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 function must(value, message) { if (!value) throw Error(message); }
@@ -17,9 +17,8 @@ function validateAge(release, registry, base, now = Date.now()) {
   const githubDate = Date.parse(release.published_at), npmDate = Date.parse(registry.time?.[base]);
   must(Number.isFinite(githubDate) && Number.isFinite(npmDate) && Number.isFinite(now) && now - Math.max(githubDate,npmDate) >= 168 * 3600000, 'upstream base availability must be verifiable and at least 168 hours old');
 }
-function validateVersion(base, version, latest) {
+function validateVersion(base, version) {
   must(/^\d+\.\d+\.\d+$/.test(version || '') && version.split('.').slice(0,2).join('.') === base.split('.').slice(0,2).join('.') && compareVersions(version,base) >= 0, 'fork version must remain on selected base patch line');
-  must(typeof latest === 'string' && compareVersions(version,latest) >= 0, 'fork version would downgrade npm latest or latest is unverifiable');
 }
 function validateOrdering(version, tags) {
   for (const tag of tags) {
@@ -35,11 +34,11 @@ async function registry() {
 }
 // This policy belongs to the trusted dev checkout, never a candidate-controlled roster.
 function assertReleaseAuthority(authority) {
-  must(authority?.actor === RELEASE_OWNER && authority?.triggeringActor === RELEASE_OWNER,
-    'fork release dispatch and rerun require owner alexalok');
+  must(RELEASE_ACTORS.has(authority?.actor) && RELEASE_ACTORS.has(authority?.triggeringActor),
+    'fork release dispatch and rerun require an authorized release account');
 }
 function currentAuthority() { return {actor:process.env.GITHUB_ACTOR,triggeringActor:process.env.GITHUB_TRIGGERING_ACTOR}; }
-function ownerUser(user) { return user?.login === RELEASE_OWNER && user?.type === 'User'; }
+function releaseUser(user) { return RELEASE_ACTORS.has(user?.login) && user?.type === 'User'; }
 function source(branch, candidate, read = api, authority = currentAuthority()) {
   assertReleaseAuthority(authority);
   const base = validateSelection(branch,candidate);
@@ -52,8 +51,8 @@ function source(branch, candidate, read = api, authority = currentAuthority()) {
   must(selected,'source must be a merged PR commit on selected release branch');
   // Commit-associated PR summaries need not include merged_by. Read the authoritative detail.
   const detail = read(`repos/${FORK}/pulls/${selected.number}`);
-  must(detail.number === selected.number && matches(detail) && ownerUser(detail.merged_by),
-    'release source PR must be merged by owner alexalok');
+  must(detail.number === selected.number && matches(detail) && releaseUser(detail.merged_by),
+    'release source PR must be merged by an authorized release account');
   return base;
 }
 async function evidence(branch,candidate,kind,read = api,policies = require('./release-evidence-policy.json'),authority = currentAuthority()) {
@@ -70,7 +69,7 @@ async function evidence(branch,candidate,kind,read = api,policies = require('./r
     if (run.repository?.id !== ID || run.head_repository?.id !== ID || run.workflow_id !== wf.id || run.event !== 'workflow_dispatch' || run.status !== 'completed' || run.conclusion !== 'success') continue;
     if (kind === 'ci' && (run.head_sha !== candidate || run.head_branch !== branch || run.display_title !== `ocx-ci-v1 lane=all sha=${candidate}`)) continue;
     if (kind === 'service' && run.head_branch !== 'dev') continue;
-    if (!ownerUser(run.actor) || !ownerUser(run.triggering_actor)) continue;
+    if (!releaseUser(run.actor) || !releaseUser(run.triggering_actor)) continue;
     try { await assertPolicy(async path => read(`repos/${FORK}${path}`),run,kind,policies); }
     catch (error) {
       // An unapproved run is not evidence; transport/incomplete/unknown failures are fatal.
@@ -91,8 +90,7 @@ async function history(branch,candidate,version) {
   const npm = await registry();
   const release = api(`repos/lidge-jun/opencodex/releases/tags/v${base}`);
   validateAge(release,npm,base);
-  validateVersion(base,version,npm['dist-tags']?.latest);
-  must(!npm.versions[version],'fork package version already exists');
+  validateVersion(base,version);
   // Git checkout must contain full candidate ancestry; missing objects fail closed.
   const upstreamTag = api(`repos/lidge-jun/opencodex/commits/v${base}`).sha;
   must(SHA.test(upstreamTag),'invalid upstream base SHA');

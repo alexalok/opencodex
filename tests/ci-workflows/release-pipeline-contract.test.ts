@@ -108,7 +108,7 @@ describe("release pipeline contract", () => {
     for (const id of ["package-standalone", "package-desktop"]) {
       const job = release.jobs?.[id];
       expect(needsOf(job), id).toEqual(["validate-dispatch", "preflight"]);
-      expect(job?.if, id).toBe("${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev') && (github.repository != 'alexalok/opencodex' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok')) }}");
+      expect(job?.if, id).toBe("${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev') && (github.repository != 'alexalok/opencodex' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania'))) }}");
       const steps = job?.steps ?? [];
       expect(steps.find(step => step.name === "Checkout")?.with?.ref, id)
         .toBe("${{ needs.validate-dispatch.outputs.source_sha }}");
@@ -290,7 +290,7 @@ describe("release pipeline contract", () => {
     expect(needsOf(verify)).toContain("package-npm");
     expect(verify?.permissions).toEqual({ contents: "read", actions: "read", "pull-requests": "read" });
     expect(verify?.steps?.find(step => step.name === "Create verified npm receipt")?.run).toContain("sha256");
-    expect(verify?.if).toBe("${{ (github.repository != 'alexalok/opencodex' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok')) }}");
+    expect(verify?.if).toBe("${{ github.repository != 'alexalok/opencodex' }}");
   });
 
   test.skipIf(process.platform === "win32")("trusted npm receipt creation rejects missing or wrong package gitHead", () => {
@@ -653,7 +653,7 @@ describe("release pipeline contract", () => {
       .toEqual(["package-desktop", "package-standalone", "validate-dispatch"]);
     // Verification is not a publication-mode step: a dry run must prove the same chain
     // a real release relies on, so the job carries no dry-run exemption.
-    expect(verify!.if).toBe("${{ (github.repository != 'alexalok/opencodex' || (github.actor == 'alexalok' && github.triggering_actor == 'alexalok')) }}");
+    expect(verify!.if).toBe("${{ (github.repository != 'alexalok/opencodex' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania'))) }}");
     expect(verify!.steps?.some(candidate => candidate.run?.includes("verify-release-assets.ts")))
       .toBe(true);
 
@@ -663,7 +663,7 @@ describe("release pipeline contract", () => {
 
     const attach = release.jobs?.["attach-release"];
     expect(attach).toBeDefined();
-    expect(needsOf(attach).sort()).toEqual(["publish", "validate-dispatch", "verify-release"]);
+    expect(needsOf(attach).sort()).toEqual(["fork-publish", "publish", "validate-dispatch", "verify-release"]);
   });
 
   test("attach uploads only the verified bundle, and only after requiring its receipt", () => {

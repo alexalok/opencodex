@@ -503,6 +503,7 @@ test.skipIf(process.platform === "win32")("final ordering preserves fork ancestr
 test("every fork source guard caller has only its exact required token scopes", () => {
   const expected: Record<string, Record<string, string>> = {
     "release.yml:validate-dispatch": { contents: "read", actions: "read", "pull-requests": "read" },
+    "release.yml:fork-publish": { contents: "write", actions: "read", "pull-requests": "read" },
     "release.yml:preflight": { contents: "read", "pull-requests": "read" },
     "release.yml:verify-npm": { contents: "read", actions: "read", "pull-requests": "read" },
     "release.yml:publish": { contents: "write", actions: "read", "pull-requests": "read", "id-token": "write" },
@@ -535,25 +536,27 @@ test("candidate and publication jobs require owner dispatch and rerun independen
   for (const file of ["release.yml", "service-lifecycle.yml"]) {
     const workflow = Bun.YAML.parse(readFileSync(repoPath(".github/workflows", file), "utf8")) as Workflow;
     const jobs = file === "release.yml"
-      ? ["preflight", "package-standalone", "package-desktop", "package-npm", "verify-npm", "verify-release", "attach-release", "publish", "release-outcomes"]
+      ? ["preflight", "package-standalone", "package-desktop", "package-npm", "verify-npm", "verify-release", "attach-release", "publish", "release-outcomes", "fork-publish"]
       : ["linux-systemd", "macos-launchd", "windows-schtasks"];
     for (const id of jobs) {
       const condition = workflow.jobs?.[id]?.if;
       expect(condition, `${file}:${id}`).toBeDefined();
-      const expression = condition!.replace(/^\$\{\{\s*|\s*\}\}$/g, "").replaceAll("inputs.dry-run", "inputs.dryRun").replaceAll("needs.validate-dispatch", "needs.validateDispatch");
+      const expression = condition!.replace(/^\$\{\{\s*|\s*\}\}$/g, "").replaceAll("inputs.dry-run", "inputs.dryRun").replaceAll("needs.validate-dispatch", "needs.validateDispatch").replaceAll("needs.verify-release", "needs.verifyRelease").replaceAll("needs.fork-publish", "needs.forkPublish");
       const evaluate = new Function("github", "inputs", "needs", "always", `return (${expression});`);
       const run = (actor: string | undefined, triggering_actor: string | undefined, repository = "alexalok/opencodex", dryRun = false) => evaluate(
         { actor, triggering_actor, repository, event_name: "workflow_dispatch", ref: "refs/heads/dev" },
-        { dryRun }, { validateDispatch: { result: "success" } }, () => true,
+        { dryRun }, { validateDispatch: { result: "success" }, verifyRelease: { result: "success" }, forkPublish: { result: "success" }, publish: { result: "success" } }, () => true,
       );
-      expect(run("alexalok", "alexalok"), `${file}:${id}`).toBe(true);
+      const npmOnly = ["package-npm", "verify-npm", "publish", "release-outcomes"].includes(id);
+      expect(run("alexalok", "alexalok"), `${file}:${id}`).toBe(!npmOnly);
+      expect(run("jack-o-mania", "jack-o-mania"), `${file}:${id}`).toBe(!npmOnly);
       for (const pair of [["writer", "writer"], ["alexalok", "writer"], ["writer", "alexalok"], [undefined, "alexalok"], ["alexalok", undefined]]) {
         expect(run(pair[0], pair[1]), `${file}:${id}`).toBe(false);
       }
-      expect(run("upstream-maintainer", "upstream-maintainer", "lidge-jun/opencodex"), `${file}:${id}`).toBe(true);
+      expect(run("upstream-maintainer", "upstream-maintainer", "lidge-jun/opencodex"), `${file}:${id}`).toBe(id !== "fork-publish");
       if (id.startsWith("package-")) {
         expect(run("alexalok", "writer", "alexalok/opencodex", true), id).toBe(false);
-        expect(run("alexalok", "alexalok", "alexalok/opencodex", true), id).toBe(true);
+        expect(run("alexalok", "alexalok", "alexalok/opencodex", true), id).toBe(!npmOnly);
       }
     }
   }

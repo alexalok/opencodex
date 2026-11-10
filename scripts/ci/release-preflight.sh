@@ -72,6 +72,8 @@ if [[ "${GITHUB_REPOSITORY:-}" == "alexalok/opencodex" ]]; then
     || fail "fork release history rejected candidate"
 fi
 
+# The fork publishes GitHub assets only; npm identity and dist-tags are irrelevant.
+if [[ "${GITHUB_REPOSITORY:-}" != "alexalok/opencodex" ]]; then
 # npm. Only an exact version answer counts as present and only E404 counts as absent; anything
 # else is a registry read failure, which warns rather than blocking a release it cannot judge.
 pkg_name="$(node -p "require(process.argv[1]).name" "$repo_root/package.json")"
@@ -101,6 +103,8 @@ case "$npm_state" in
     fail "Could not establish npm state for ${pkg_name}@${RELEASE_VERSION}; refusing an unverifiable release"
     ;;
 esac
+
+fi
 
 # Cross-channel ordering against the whole tag set: the gate run 35783865160 reached too late.
 fork_scope=""
