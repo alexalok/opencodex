@@ -7,9 +7,9 @@ import { repoPath } from "../helpers/repo-root";
 
 const script = repoPath("scripts", "ci", "bun-install-frozen.sh");
 const UBUNTU_INSTALL_JOBS = ["test", "test-changed", "storage-policy", "api-usage", "gates"];
-// Only manual runs of the heavy jobs may take the lidge pool; every PR stays hosted.
+// The heavy Linux jobs must also remain hosted during release qualification.
 const LIDGE_JOBS = new Set(["test", "test-changed", "gates"]);
-const LIDGE_RUNS_ON = "${{ vars.LIDGE_RUNNERS == 'on' && github.event_name == 'workflow_dispatch' && fromJSON('[\"self-hosted\",\"linux\",\"x64\",\"lidge\"]') || 'ubuntu-latest' }}";
+const LIDGE_RUNS_ON = "ubuntu-latest";
 const isUbuntu = (runsOn: string | null) => runsOn === "ubuntu-latest" || runsOn === LIDGE_RUNS_ON;
 
 /** Map each job id in ci.yml to its runs-on value and the run lines it contains. */
@@ -39,22 +39,6 @@ describe("CI frozen installs are bounded", () => {
       if (!isUbuntu(job.runsOn)) continue;
       // A bare two-step root+gui install, in block or one-line form, is unbounded again.
       expect(/bun install --frozen-lockfile(?:\s*&&\s*|\s*\n\s*)cd gui(?:\s*&&\s*|\s*\n\s*)bun install/.test(job.text), name).toBe(false);
-    }
-  });
-});
-
-describe("Linux runner trust", () => {
-  test("every PR stays GitHub-hosted regardless of repository ownership or author association", () => {
-    for (const name of LIDGE_JOBS) {
-      const expression = ciJobs().get(name)!.runsOn!.slice(3, -2).trim();
-      const evaluate = new Function("vars", "github", "fromJSON", "contains", `return (${expression});`);
-      for (const repository of ["alexalok/opencodex", "lidge-jun/opencodex"]) for (const sameRepo of [false, true]) for (const association of ["OWNER", "MEMBER", "COLLABORATOR", "CONTRIBUTOR", "NONE"]) {
-        const github = {event_name: "pull_request", repository, event: {pull_request: {head: {repo: {full_name: sameRepo ? repository : "outsider/opencodex"}}, author_association: association}}};
-        expect(evaluate({LIDGE_RUNNERS: "on"}, github, JSON.parse, (list: string[], value: string) => list.includes(value)), `${name} ${repository} ${sameRepo} ${association}`).toBe("ubuntu-latest");
-      }
-      const manual = {event_name: "workflow_dispatch"};
-      expect(evaluate({LIDGE_RUNNERS: "on"}, manual, JSON.parse)).toEqual(["self-hosted", "linux", "x64", "lidge"]);
-      expect(evaluate({LIDGE_RUNNERS: "off"}, manual, JSON.parse)).toBe("ubuntu-latest");
     }
   });
 });
@@ -349,4 +333,13 @@ describe.skipIf(process.platform === "win32")("bun-install-frozen.sh retry polic
     expect(readFileSync(join(root, "bun.lock"), "utf8")).toBe(lockBefore);
   }, 30_000);
 
+});
+
+test("fork CI has no selectable persistent runner pool", () => {
+  for (const name of LIDGE_JOBS) expect(ciJobs().get(name)!.runsOn).toBe("ubuntu-latest");
+  const workflow = Bun.YAML.parse(readFileSync(repoPath(".github/workflows/ci.yml"), "utf8"));
+  const pick = workflow.jobs["select-windows-runner"].steps.find((step: {id?: string}) => step.id === "pick");
+  expect(pick.env).toBeUndefined();
+  expect(pick.run).not.toContain("self-hosted");
+  expect(pick.run).toContain('runner="windows-latest"');
 });
