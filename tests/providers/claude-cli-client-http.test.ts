@@ -484,3 +484,27 @@ test("image requests retain Responses history and Chat tool results through CLI 
     releaseSpend();
   }
 }, 20000);
+
+
+test("synthetic CLI drains large replay frames before exiting with a slow reader", async () => {
+  const text = "x".repeat(300_000);
+  const child = spawn(process.execPath, [join(import.meta.dir, "../fixtures/claude-efficiency-cli.ts"), "[]", "", "image-replay"], { stdio: ["pipe", "pipe", "pipe"] });
+  const closed = new Promise<number | null>((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", resolve);
+  });
+  try {
+    child.stdin.end(JSON.stringify({ message: { content: [{ type: "text", text }] } }));
+    // Let the child fill its pipe before consuming; process.exit used to lose queued bytes.
+    await Bun.sleep(200);
+    const chunks: Buffer[] = [];
+    for await (const chunk of child.stdout) chunks.push(Buffer.from(chunk));
+    expect(await closed).toBe(0);
+    const frames = Buffer.concat(chunks).toString().trim().split("\n").map(line => JSON.parse(line));
+    expect(frames).toHaveLength(3);
+    expect(JSON.parse(frames[1].event.delta.text)).toEqual([{ type: "text", text }]);
+    expect(frames[2].subtype).toBe("success");
+  } finally {
+    if (child.exitCode === null) child.kill();
+  }
+});

@@ -6,12 +6,15 @@ const cacheWrite = process.argv[4] === "omit-cache-creation" ? 0 : 80;
 let input = "";
 for await (const chunk of process.stdin) input += chunk;
 const frame = JSON.parse(input.trim());
-const emit = (value: unknown) => process.stdout.write(JSON.stringify(value) + "\n");
+const emit = (value: unknown) => new Promise<void>((resolve, reject) => {
+  process.stdout.write(JSON.stringify(value) + "\n", error => error ? reject(error) : resolve());
+});
 // Echo only the owned synthetic replay for the request-parser regression. No vendor account or socket.
 if (process.argv[4] === "image-replay") {
-  emit({ type: "system", subtype: "init", mcp_servers: [{ name: "opencodex", status: "connected" }] });
-  emit({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: JSON.stringify(frame.message.content) } } });
-  emit({ type: "result", subtype: "success", usage: { input_tokens: 2, output_tokens: 4 } });
+  await emit({ type: "system", subtype: "init", mcp_servers: [{ name: "opencodex", status: "connected" }] });
+  await emit({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: JSON.stringify(frame.message.content) } } });
+  await emit({ type: "result", subtype: "success", usage: { input_tokens: 2, output_tokens: 4 } });
+  // Large replay frames must drain before terminating the synthetic child.
   process.exit(0);
 }
 const current = frame.message.content.at(-1).text as string;
