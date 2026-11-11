@@ -201,4 +201,3 @@ describe("presented Claude Code version", () => {
     expect(CLAUDE_CLI_USER_AGENT).toBe(`claude-cli/${CLAUDE_CLI_VERSION} (external, cli)`);
   });
 });
-

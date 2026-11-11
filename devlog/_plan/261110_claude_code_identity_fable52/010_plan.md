@@ -45,4 +45,3 @@ router-for-me/CLIProxyAPI#7392 (merged 2026-11-10, fixes their #7386) hit the sa
 baseline to 2.1.321 / sdk 0.128.0 / runtime v26.12.1 from a mitmproxy capture. This unit aligns to that measured
 baseline. Their beta-header reordering and billing cc_version changes do not apply: opencodex assembles no
 version-specific billing header and only passes caller betas through its allowlist.
-
