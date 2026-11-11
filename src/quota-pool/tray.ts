@@ -4,8 +4,9 @@
  *
  * Built from the same collection as `ocx.quota-pool/1` (`collectQuotaPoolProviders`), inside
  * `runPassiveRead`. Per provider it keeps the pooled 5-hour and weekly windows as remaining
- * percent, the next capacity recovery of each (`pooledRecovery`), and the pool-wide block from the
- * `availability` window with the window that holds it. Per account: display name, plan, the
+ * percent, the next capacity recovery of each (`pooledRecovery`) and every per-account recovery
+ * (`pooledRecoveries`), and the pool-wide block from the `availability` window with the window
+ * that holds it. Per account: display name, plan, the
  * plan's capacity weight (`units`), its own 5-hour and weekly windows, and its reset credits.
  *
  * Reset-credit expiry is not in WHAM usage. The read answers from the in-memory memo
@@ -25,7 +26,7 @@ import type { CodexCapacityWindowAggregation } from "../providers/codex-capacity
 import type { QuotaPoolAccountState, QuotaPoolWindow } from "./contract";
 import { collectQuotaPoolProviders, type CollectedQuotaProvider, type QuotaPoolDeps, type TrackedAccount } from "./assemble";
 import { readQuotaPoolIdentity } from "./identity";
-import { pooledBlockHolder, pooledRecovery } from "./pooled";
+import { pooledBlockHolder, pooledRecoveries, pooledRecovery } from "./pooled";
 
 export const QUOTA_TRAY_SCHEMA = "ocx.quota-tray/1" as const;
 export const RESET_CREDIT_INSPECT_RETRY_MS = 60 * 60_000;
@@ -42,6 +43,11 @@ export interface QuotaTrayPoolWindow extends QuotaTrayWindow {
   nextRecoveryAt?: number;
   /** Share of the pool's capacity that comes back then. */
   nextRecoveryPercent?: number;
+  /**
+   * Each upcoming recovery, soonest first: one per account whose window has used capacity, with the
+   * share of the pool's capacity it returns. A provider read from one report has a single entry.
+   */
+  recoveries?: { at: number; percent: number }[];
 }
 
 export interface QuotaTrayAccount {
@@ -106,8 +112,11 @@ function poolWindow(collected: CollectedQuotaProvider, key: keyof typeof TRAY_WI
   const base = trayWindow(collected.windows.find(window => window.id === id && window.scopeModel === undefined));
   if (!base) return undefined;
   let recovery: { at: number; percent: number } | undefined;
+  let recoveries: { at: number; percent: number }[] = [];
   if (collected.poolFromRows) {
-    recovery = pooledRecovery(collected.rows.map(row => row.pool), id, now);
+    const pool = collected.rows.map(row => row.pool);
+    recovery = pooledRecovery(pool, id, now);
+    recoveries = pooledRecoveries(pool, id, now);
   } else {
     const aggregation = collected.report?.aggregation as { [k: string]: CodexCapacityWindowAggregation | undefined } | undefined;
     const reported = aggregation?.[REPORT_AGGREGATION_KEYS[key]];
@@ -117,8 +126,9 @@ function poolWindow(collected: CollectedQuotaProvider, key: keyof typeof TRAY_WI
       // One report stands for one budget: all of its used share comes back at its reset.
       recovery = { at: base.resetsAt, percent: 100 - base.remainingPercent };
     }
+    if (recovery) recoveries = [recovery];
   }
-  return recovery ? { ...base, nextRecoveryAt: recovery.at, nextRecoveryPercent: recovery.percent } : base;
+  return recovery ? { ...base, nextRecoveryAt: recovery.at, nextRecoveryPercent: recovery.percent, recoveries } : base;
 }
 
 function blockingId(id: string): "5h" | "weekly" | "other" {
