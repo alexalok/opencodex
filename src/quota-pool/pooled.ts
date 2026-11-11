@@ -162,14 +162,14 @@ export function pooledWindows(accounts: readonly PooledAccountInput[], now: numb
 }
 
 /**
- * The next capacity recovery of window `id` over the same live accounts `pooledWindows` averages:
- * the earliest reset among accounts with used capacity, and the share of the pool's weighted
- * capacity (Σ weight over accounts with a reading) that comes back then. The same estimate
- * `aggregateCodexPoolCapacity` reports as `nextRecoveryAt` / `nextRecoveryPercent`.
+ * Every upcoming capacity recovery of window `id` over the same live accounts `pooledWindows`
+ * averages, one per account with used capacity and a known reset, soonest first: when that account's
+ * window resets and the share of the pool's weighted capacity (Σ weight over accounts with a
+ * reading) it returns then.
  */
-export function pooledRecovery(accounts: readonly PooledAccountInput[], id: string, now: number): { at: number; percent: number } | undefined {
+export function pooledRecoveries(accounts: readonly PooledAccountInput[], id: string, now: number): { at: number; percent: number }[] {
   let totalWeight = 0;
-  const recoveries = new Map<number, number>();
+  const recoveries: { at: number; consumed: number }[] = [];
   for (const account of accounts) {
     if (!account.eligible || !Number.isFinite(account.weight) || account.weight <= 0) continue;
     const window = account.windows.find(candidate => candidate.id === id && candidate.usedPercent !== undefined && current(candidate, now));
@@ -177,11 +177,23 @@ export function pooledRecovery(accounts: readonly PooledAccountInput[], id: stri
     totalWeight += account.weight;
     const reset = timeMs(window.resetsAt);
     const consumed = account.weight * window.usedPercent! / 100;
-    if (reset !== undefined && consumed > 0) recoveries.set(reset, (recoveries.get(reset) ?? 0) + consumed);
+    if (reset !== undefined && consumed > 0) recoveries.push({ at: reset, consumed });
   }
-  if (totalWeight === 0 || recoveries.size === 0) return undefined;
-  const at = Math.min(...recoveries.keys());
-  return { at, percent: Math.min(100, recoveries.get(at)! / totalWeight * 100) };
+  return recoveries
+    .sort((a, b) => a.at - b.at)
+    .map(({ at, consumed }) => ({ at, percent: Math.min(100, consumed / totalWeight * 100) }));
+}
+
+/**
+ * The next capacity recovery of window `id`: the earliest of `pooledRecoveries`, with every account
+ * resetting at that same moment summed. The same estimate `aggregateCodexPoolCapacity` reports as
+ * `nextRecoveryAt` / `nextRecoveryPercent`.
+ */
+export function pooledRecovery(accounts: readonly PooledAccountInput[], id: string, now: number): { at: number; percent: number } | undefined {
+  const all = pooledRecoveries(accounts, id, now);
+  if (all.length === 0) return undefined;
+  const at = all[0]!.at;
+  return { at, percent: Math.min(100, all.filter(entry => entry.at === at).reduce((sum, entry) => sum + entry.percent, 0)) };
 }
 
 /**
