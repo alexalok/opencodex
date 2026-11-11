@@ -2,9 +2,12 @@
 
 For `alexalok/opencodex`, the owner-directed fork workflow in
 [`AGENTS.md`](./AGENTS.md#git-workflow-for-alexalokopencodex) governs integration:
-PRs into current `dev`, upstream synchronization before merges, and PRs from
-`backports/vX.Y.Z/*` into `releases/vX.Y.Z`. There is no fork `main` or separate
-stable line. The owner may explicitly authorize fork integration after validation
+PRs into current `dev`, synchronization to the upstream tip fetched and pinned
+at the start of the integration process, and PRs from `backports/vX.Y.Z/*` into
+`releases/vX.Y.Z`. Fork `dev` must contain that pinned commit before the requested
+PR merges; a prerequisite sync PR includes it and is integrated with a merge
+commit. Later upstream advances during CI, review, or merge do not require
+restarting the process. There is no fork `main` or separate stable line. The owner may explicitly authorize fork integration after validation
 and security review. The upstream roster and promotion rules below describe
 `lidge-jun/opencodex`; they do not grant permissions in this fork.
 

@@ -13,10 +13,13 @@ line: this repository has current `dev` and versioned backports.
   `main` branch in this fork. `dev` is the default branch.
 - All development and maintenance changes land through pull requests targeting
   this fork's `dev`; never push commits directly to `dev`.
-- Before merging any PR, fetch upstream `lidge-jun/opencodex`'s `dev` and ensure
-  it is an ancestor of fork `dev`. If it is not, integrate the upstream sync
-  through a PR first. The sync PR itself must include the current upstream tip;
-  preserve that ancestry with a merge commit when integrating a sync PR.
+- At the start of an integration process, fetch upstream `lidge-jun/opencodex`'s
+  `dev` and record its tip as the pinned upstream commit for that process. Fork
+  `dev` must contain that pinned commit before merging the requested PR; if it
+  does not, integrate an upstream sync PR first. The sync PR must include the
+  pinned commit, and its integration must use a merge commit to preserve that
+  ancestry. Later upstream advances, including during CI, review, or merge, do
+  not restart the process or require another sync for that integration.
 - For a backport, create `releases/vX.Y.Z` from the selected upstream release
   tag and `backports/vX.Y.Z/<feature_name>` from that release branch. Git branch
   names have no leading slash. Backport PRs target that `releases/vX.Y.Z`
