@@ -48,6 +48,8 @@ description: 监听、远程访问、准入密钥、超时、存储、侧车、�
 默认的 `127.0.0.1` 绑定仅限回环地址。像 `0.0.0.0` 这样的非回环地址需要
 在 `/api/*` 和数据平面上都启用令牌认证。启动前先导出令牌：
 
+对于 hub 客户端（包括 Remote Link），服务安装、修复和更新会检查 `OPENCODEX_API_AUTH_TOKEN`。若其指纹与保存的连接不符，但现有 `service-api-token` 文件匹配，则保留文件并警告该变量已被忽略。没有匹配文件时操作停止：请恢复 hub 签发的密钥或重新连接。不会输出令牌值；standalone/hub 的优先级不变。
+
 ```bash
 export OPENCODEX_API_AUTH_TOKEN="your-secret-token"
 ocx start

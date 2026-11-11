@@ -43,6 +43,8 @@ description: 監聽器、遠端存取、許可金鑰、逾時、儲存、sidecar
 
 預設的 `127.0.0.1` 綁定僅限回送。如 `0.0.0.0` 的非回送位址需要在 `/api/*` 與 data plane 上都進行 token 認證。在啟動前匯出 token：
 
+對於 hub 用戶端（包括 Remote Link），服務安裝、修復和更新會檢查 `OPENCODEX_API_AUTH_TOKEN`。若其指紋與儲存的連線不符，但現有 `service-api-token` 檔案相符，則保留檔案並警告該變數已被忽略。沒有相符檔案時操作停止：請還原 hub 簽發的金鑰或重新連線。不會輸出權杖值；standalone/hub 的優先順序不變。
+
 ```bash
 export OPENCODEX_API_AUTH_TOKEN="your-secret-token"
 ocx start

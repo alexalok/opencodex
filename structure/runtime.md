@@ -252,7 +252,7 @@ Auxiliary listener bind failures carry the listener key and effective address th
 A failed public, loopback, or management bind rolls back earlier sockets; a failed hub-link bind warns
 and exposes `failed{bind}` through optional-listener status while existing sockets remain available.
 Listener-port persistence failures expose `failed{persist}` and close the new socket. Normal stop joins
-sockets before release. The existing launchd/systemd installer remains the service owner and loads the data token from `service-api-token`; hub mode adds no service-manager fork or token-bearing unit/plist field.
+sockets before release. Service provisioning in `src/service/guards.ts` ignores a mismatched `OPENCODEX_API_AUTH_TOKEN` with a value-free warning when a hub client's file matches its recorded fingerprint; without a matching file it refuses the env token. Standalone/hub-home precedence and admin-token refusal are unchanged. Validation and reuse share the config mutation lock with rotation. The existing launchd/systemd installer remains the service owner and loads the data token from `service-api-token`; hub mode adds no service-manager fork or token-bearing unit/plist field.
 
 > Decision record: [ADR-0002](decisions/ADR-0002-lifecycle.md)
 

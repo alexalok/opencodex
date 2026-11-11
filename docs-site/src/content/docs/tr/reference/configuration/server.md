@@ -49,6 +49,8 @@ Varsayılan `127.0.0.1` bağlaması yalnızca geri döngüdür. `0.0.0.0` gibi g
 döngü olmayan bir adres hem `/api/*` hem de veri düzleminde belirteç kimlik
 doğrulaması gerektirir. Başlamadan önce belirteci dışa aktarın:
 
+Hub istemcisinde (Remote Link dahil) servis kurulumu, onarımı ve güncellemesi sırasında `OPENCODEX_API_AUTH_TOKEN` kayıtlı bağlantı parmak iziyle uyuşmuyorsa, eşleşen mevcut `service-api-token` dosyası korunur ve değişkenin yok sayıldığı bildirilir. Eşleşen dosya yoksa işlem durur: hub anahtarını geri yükleyin veya yeniden bağlanın. Token değeri yazdırılmaz; standalone/hub önceliği değişmez.
+
 ```bash
 export OPENCODEX_API_AUTH_TOKEN="your-secret-token"
 ocx start

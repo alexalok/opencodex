@@ -47,6 +47,8 @@ La liaison par défaut à `127.0.0.1` est limitée au bouclage. Une adresse hors
 exige un identifiant pour le plan de données : `OPENCODEX_API_AUTH_TOKEN` ou au moins une entrée `apiKeys`
 configurée. Pour utiliser le jeton d’environnement, exportez-le avant le démarrage :
 
+Pour un client de hub (Remote Link inclus), l’installation, la réparation et la mise à jour ignorent `OPENCODEX_API_AUTH_TOKEN` avec un avertissement si son empreinte diffère de celle de la connexion et que le fichier `service-api-token` correspond. Sans fichier correspondant, elles s’arrêtent : restaurez la clé du hub ou reconnectez le client. Aucune valeur secrète n’est affichée ; la priorité standalone/hub reste inchangée.
+
 ```bash
 export OPENCODEX_API_AUTH_TOKEN="your-secret-token"
 ocx start
