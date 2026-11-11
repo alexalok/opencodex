@@ -24,6 +24,7 @@
  */
 import type { OcxConfig, OcxProviderConfig } from "../types";
 import type { ProviderQuota, ProviderQuotaWindow } from "../providers/quota-types";
+import { isDisplayOnlyQuota } from "../providers/quota-types";
 import type { StoredAccountQuota } from "../codex/quota-types";
 import { isTerminalShortWindow, resetAtToMs } from "../codex/quota-types";
 import { runPassiveRead } from "../lib/passive-read";
@@ -169,6 +170,8 @@ function customWindow(window: ProviderQuotaWindow, source: QuotaPoolSource, upda
 
 /** A `ProviderQuota` (provider report or per-account cache row). */
 export function providerQuotaWindows(quota: ProviderQuota, source: QuotaPoolSource, now: number): QuotaPoolWindow[] {
+  // Display-only readings (Mistral budgets) never become pool capacity or exhaustion evidence.
+  if (isDisplayOnlyQuota(quota)) return [];
   const out: QuotaPoolWindow[] = [];
   const push = (window: QuotaPoolWindow | null) => { if (window) out.push(window); };
   const at = quota.updatedAt;
@@ -353,7 +356,7 @@ export interface CollectedQuotaProvider {
  */
 export async function collectQuotaPoolProviders(config: OcxConfig, identity: QuotaPoolIdentity, now: number, deps: QuotaPoolDeps = {}): Promise<CollectedQuotaProvider[]> {
   const names = Object.keys(config.providers).filter(name => enabled(config.providers[name])).sort();
-  const reports = new Map(heldProviderQuotaReports(names).reports.map(report => [report.provider, report]));
+  const reports = new Map(heldProviderQuotaReports(config).reports.map(report => [report.provider, report]));
   const codexPool = hasCodexPoolProvider(config);
   const codex = codexPool ? (await (deps.codexSnapshot ?? listCodexAuthAccountsSnapshot)(config)).accounts : [];
   const maskEmails = emailMaskingEnabled(config);
