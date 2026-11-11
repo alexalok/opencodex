@@ -51,6 +51,8 @@ description: 리스너, 원격 접근, admission 키, 타임아웃, 저장소, �
 
 값을 직접 관리하려는 운영자는 여전히 변수를 설정할 수 있습니다:
 
+허브 클라이언트(Remote Link 포함)의 서비스 설치·복구·업데이트에서는 `OPENCODEX_API_AUTH_TOKEN`이 저장된 연결 지문과 다르면 일치하는 기존 `service-api-token`을 유지하고 변수를 무시했다는 경고를 표시합니다. 일치하는 파일이 없으면 중단합니다. 허브에서 발급한 키를 복원하거나 다시 연결하세요. 토큰 값은 출력하지 않으며 standalone/hub 우선순위는 바뀌지 않습니다.
+
 ```bash
 export OPENCODEX_API_AUTH_TOKEN="your-secret-token"
 ocx start
