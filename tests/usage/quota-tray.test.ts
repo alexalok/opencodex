@@ -11,7 +11,7 @@ import { join } from "node:path";
 import type { OcxConfig } from "../../src/types";
 import type { StoredAccountQuota } from "../../src/codex/quota-types";
 import { codexQuotaWindows } from "../../src/quota-pool/assemble";
-import { pooledBlockHolder, pooledRecovery, pooledWindows, type PooledAccountInput } from "../../src/quota-pool/pooled";
+import { pooledBlockHolder, pooledRecoveries, pooledRecovery, pooledWindows, type PooledAccountInput } from "../../src/quota-pool/pooled";
 import type { QuotaPoolWindow } from "../../src/quota-pool/contract";
 import { providerResetCredits, readQuotaTray, resetQuotaTrayStateForTests, RESET_CREDIT_INSPECT_RETRY_MS } from "../../src/quota-pool/tray";
 import type { TrackedAccount } from "../../src/quota-pool/assemble";
@@ -90,6 +90,24 @@ describe("pooled recovery", () => {
   test("ineligible accounts and unused capacity never recover anything", () => {
     expect(pooledRecovery([codex("pro", { weeklyPercent: 0, weeklyResetAt: NOW + HOUR })], "weekly", NOW)).toBeUndefined();
     expect(pooledRecovery([codex("pro", { weeklyPercent: 60, weeklyResetAt: NOW + HOUR }, false)], "weekly", NOW)).toBeUndefined();
+    expect(pooledRecoveries([codex("pro", { weeklyPercent: 60, weeklyResetAt: NOW + HOUR }, false)], "weekly", NOW)).toEqual([]);
+  });
+
+  test("lists one recovery per account, soonest first; accounts without the window have none", () => {
+    const short = (shortPercent: number, resetMs: number) => ({ shortPercent, shortWindowSeconds: 5 * 3600, shortResetAt: resetMs / 1000 });
+    const accounts = [
+      codex("plus", { ...short(60, NOW + 3 * HOUR), weeklyPercent: 80, weeklyResetAt: NOW + 48 * HOUR }),
+      codex("plus", { ...short(20, NOW + HOUR), weeklyPercent: 0, weeklyResetAt: NOW + 24 * HOUR }),
+      codex("prolite", { weeklyPercent: 30, weeklyResetAt: NOW + 72 * HOUR }),
+    ];
+    expect(pooledRecoveries(accounts, "5h", NOW)).toEqual([
+      { at: NOW + HOUR, percent: 20 / 2 },
+      { at: NOW + 3 * HOUR, percent: 60 / 2 },
+    ]);
+    expect(pooledRecoveries(accounts, "weekly", NOW)).toEqual([
+      { at: NOW + 48 * HOUR, percent: 0.8 / 12 * 100 },
+      { at: NOW + 72 * HOUR, percent: 10 * 0.3 / 12 * 100 },
+    ]);
   });
 });
 
@@ -134,8 +152,14 @@ describe("ocx.quota-tray/1", () => {
       providers: [
         {
           provider: "claude-cli",
-          fiveHour: { remainingPercent: 0, resetsAt: NOW + HOUR, exhausted: true, nextRecoveryAt: NOW + HOUR, nextRecoveryPercent: 100 },
-          weekly: { remainingPercent: 39, resetsAt: NOW + 72 * HOUR, nextRecoveryAt: NOW + 72 * HOUR, nextRecoveryPercent: 61 },
+          fiveHour: {
+            remainingPercent: 0, resetsAt: NOW + HOUR, exhausted: true, nextRecoveryAt: NOW + HOUR, nextRecoveryPercent: 100,
+            recoveries: [{ at: NOW + HOUR, percent: 100 }],
+          },
+          weekly: {
+            remainingPercent: 39, resetsAt: NOW + 72 * HOUR, nextRecoveryAt: NOW + 72 * HOUR, nextRecoveryPercent: 61,
+            recoveries: [{ at: NOW + 72 * HOUR, percent: 61 }],
+          },
           blocked: { window: "5h", recoversAt: NOW + HOUR },
           resetCredits: 0,
           accounts: [{
@@ -147,7 +171,10 @@ describe("ocx.quota-tray/1", () => {
         {
           provider: "xai",
           // The account without a reading is unknown there, so it neither counts nor recovers.
-          weekly: { remainingPercent: 58, resetsAt: NOW + 48 * HOUR, nextRecoveryAt: NOW + 48 * HOUR, nextRecoveryPercent: 42 },
+          weekly: {
+            remainingPercent: 58, resetsAt: NOW + 48 * HOUR, nextRecoveryAt: NOW + 48 * HOUR, nextRecoveryPercent: 42,
+            recoveries: [{ at: NOW + 48 * HOUR, percent: 42 }],
+          },
           resetCredits: 0,
           // OAuth emails follow privacy.maskEmails, which masks unless it is literally false.
           accounts: [
@@ -157,8 +184,14 @@ describe("ocx.quota-tray/1", () => {
         },
         {
           provider: "zai",
-          fiveHour: { remainingPercent: 70, resetsAt: NOW + 2 * HOUR, nextRecoveryAt: NOW + 2 * HOUR, nextRecoveryPercent: 30 },
-          weekly: { remainingPercent: 20, resetsAt: NOW + 96 * HOUR, nextRecoveryAt: NOW + 96 * HOUR, nextRecoveryPercent: 80 },
+          fiveHour: {
+            remainingPercent: 70, resetsAt: NOW + 2 * HOUR, nextRecoveryAt: NOW + 2 * HOUR, nextRecoveryPercent: 30,
+            recoveries: [{ at: NOW + 2 * HOUR, percent: 30 }],
+          },
+          weekly: {
+            remainingPercent: 20, resetsAt: NOW + 96 * HOUR, nextRecoveryAt: NOW + 96 * HOUR, nextRecoveryPercent: 80,
+            recoveries: [{ at: NOW + 96 * HOUR, percent: 80 }],
+          },
           resetCredits: 0,
           accounts: [],
         },

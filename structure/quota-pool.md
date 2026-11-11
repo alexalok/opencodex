@@ -58,7 +58,10 @@ computes no number itself, so every value it shows is here:
   `nextRecoveryPercent`). For account rows that is `pooledRecovery` in `pooled.ts`, the earliest
   reset among live accounts with used capacity and the share of pooled weight it returns, the same
   estimate `aggregateCodexPoolCapacity` reports; for a held report it is the report's aggregation,
-  else the whole used share at the report's reset;
+  else the whole used share at the report's reset. `recoveries` lists every upcoming recovery,
+  soonest first: for account rows one entry per live account with used capacity
+  (`pooledRecoveries`), each the share of pooled weight that account returns at its own reset; for
+  a held report the single next recovery;
 - `blocked` while the unscoped `availability` window exists (for a report: any exhausted unscoped
   window), with `recoversAt` and the window (`5h`, `weekly` or `other`) that holds it:
   `pooledBlockHolder` takes it from the same live eligible evidence as `availability`, the
