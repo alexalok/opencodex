@@ -2698,6 +2698,7 @@ export const ru: Record<TKey, string> = {
   "codexAuth.openaiPresetLoadFailed": "Не удалось загрузить пресет провайдера OpenAI.",
   "codexAuth.openaiPresetUnavailable": "Пресет провайдера OpenAI недоступен.",
   "codexAuth.openProviders": "Открыть провайдеров",
+  "codexAuth.changeAccountMode": "Изменить режим аккаунта",
   "codexAuth.add": "Добавить",
   "codexAuth.credits": "Кредиты",
   "codexAuth.creditsRemaining": "осталось",
