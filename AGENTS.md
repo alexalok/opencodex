@@ -13,10 +13,13 @@ line: this repository has current `dev` and versioned backports.
   `main` branch in this fork. `dev` is the default branch.
 - All development and maintenance changes land through pull requests targeting
   this fork's `dev`; never push commits directly to `dev`.
-- Before merging any PR, fetch upstream `lidge-jun/opencodex`'s `dev` and ensure
-  it is an ancestor of fork `dev`. If it is not, integrate the upstream sync
-  through a PR first. The sync PR itself must include the current upstream tip;
-  preserve that ancestry with a merge commit when integrating a sync PR.
+- At the start of an integration process, fetch upstream `lidge-jun/opencodex`'s
+  `dev` and record its tip as the pinned upstream commit for that process. Fork
+  `dev` must contain that pinned commit before merging the requested PR; if it
+  does not, integrate an upstream sync PR first. The sync PR must include the
+  pinned commit, and its integration must use a merge commit to preserve that
+  ancestry. Later upstream advances, including during CI, review, or merge, do
+  not restart the process or require another sync for that integration.
 - For a backport, create `releases/vX.Y.Z` from the selected upstream release
   tag and `backports/vX.Y.Z/<feature_name>` from that release branch. Git branch
   names have no leading slash. Backport PRs target that `releases/vX.Y.Z`
@@ -425,7 +428,7 @@ than nudged.
   `workflow_dispatch` on `dev`. A successful complete `lane=all` run establishes
   evidence for its exact dev commit; a PR run or narrower manual lane does not.
 - A manual `lane=all` dispatch is a **batch check on `dev`**, never a per-PR gate.
-  One run is about 32 jobs (11 Windows, at least 6 macOS, 15 Linux) and six runner-hours, and the
+  One run is about 31 jobs (11 Windows, at least 5 macOS, 15 Linux) and five runner-hours, and the
   account has only five macOS slots (a macOS job can queue), so per-PR dispatches starve
   every other check. On 2026-10-27, parallel agent lanes dispatched 48 of them in twelve hours (about 13,000
   runner-minutes). The queue passed 200 runs, and ordinary PR checks waited hours to start.
