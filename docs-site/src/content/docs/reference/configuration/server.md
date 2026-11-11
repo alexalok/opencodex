@@ -309,6 +309,13 @@ enters a service definition or argv. A foreground `ocx start` applies the same p
 environment, then `OCX_API_TOKEN_FILE`, then the installed `service-api-token` — so it binds a
 non-loopback hostname without an exported token too.
 
+For a connected hub client (including Remote Link), service install, repair, and update restarts
+check an exported `OPENCODEX_API_AUTH_TOKEN` against the connection's recorded token fingerprint.
+If it differs but the existing `service-api-token` matches, the file is kept and a warning says
+the variable was ignored. If no matching file exists, provisioning stops: restore the matching
+hub-issued key or reconnect to the hub before retrying. No token value is printed. Standalone
+and hub-home installs retain the precedence above; an exported matching client key is accepted.
+
 A **management admin token** is refused in either place it can appear — the environment variable or
 a reused `service-api-token` file — and the message names the remedy for that place: unset the
 variable, or delete the file and run `ocx service repair`. Both checks run before the loopback
