@@ -24,7 +24,7 @@ import {
   accountReportCurrent, observedQuotaFor,
   AUTHORITATIVE_EMPTY_QUOTA,
   bumpProviderQuotaInvalidationEpoch,
-  captureProviderReportEpochs, providerReportEpochChanged,
+  captureProviderReportEpochs, reconcileChangedProviderReports, previousProviderReports,
   cacheKeyWithAggregationState,
   getProviderQuotaReportCache,
   hasCodexPoolProvider, heldProviderQuotaReports,
@@ -200,7 +200,7 @@ export function providerObservationAccountKeyForTests(provider: string, config: 
   return providerObservationAccountKey(provider, config);
 }
 
-function notifyProviderQuotaSnapshot(
+export function notifyProviderQuotaSnapshot(
   reports: ReadonlyArray<ProviderQuotaReport>,
   config: OcxConfig,
 ): void {
@@ -273,8 +273,7 @@ export async function fetchProviderQuotaReports(config: OcxConfig, forceRefresh 
   const epoch = invalidationEpoch;
 
   const promise = (async (): Promise<ProviderQuotaResponse> => {
-    const previousCache = getProviderQuotaReportCache();
-    const previous = previousCache && previousCache.key === key ? previousCache.response.reports : [];
+    const previous = previousProviderReports(key, config);
     const probeResults = await Promise.all(
       Object.entries(config.providers).map(([name, provider]) => (
         maybeFetchProviderQuota(name, provider, config, forceRefresh, prefetchedCodexSnapshot)
@@ -326,8 +325,8 @@ export async function fetchProviderQuotaReports(config: OcxConfig, forceRefresh 
       byProvider.delete(provider);
       generationMismatchedProviders.delete(provider);
     }
-    // A provider-scoped clear during this probe retires only that provider's row.
-    for (const provider of [...byProvider.keys()]) if (providerReportEpochChanged(providerEpochs, provider)) byProvider.delete(provider);
+    // A scoped clear or traffic refresh supersedes only its own provider's row.
+    reconcileChangedProviderReports(byProvider, providerEpochs, config);
 
     const response = { generatedAt: Date.now(), reports: [...byProvider.values()] };
     // Commit only when this probe still holds authority (no clear/force superseded it).
