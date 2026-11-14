@@ -51,3 +51,22 @@ export function sealRequestAttemptIdentity(
     attempt.accountLogLabel = accountLogLabel;
   }
 }
+
+export function beginRequestAttempt(
+  ordinal: number,
+  provider: string,
+  model: string,
+  adapter: string,
+): PersistedUsageAttempt {
+  return {
+    ordinal,
+    provider,
+    model,
+    adapter,
+    status: 0,
+    durationMs: 0,
+    sendCount: 0,
+    recoveryKinds: [],
+    usageStatus: "unreported",
+  };
+}

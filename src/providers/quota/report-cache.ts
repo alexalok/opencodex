@@ -1,3 +1,4 @@
+import { providerKeyResolutionGeneration } from "../api-key-resolve";
 import { decisionQuotaSinkActive, invalidateDecisionKeyQuotas, replaceCollectedDecisionQuotas, type AntigravityQuotaObservation, type AntigravityQuotaReceipt, type DecisionKeyObservation } from "../../lib/decision-quota-sink";
 import { providerDecisionWindows } from "../quota-decision-publication";
 import type { DecisionQuotaWindow } from "../quota-decision-snapshot";
@@ -31,6 +32,8 @@ export const routingEvidence = new WeakMap<ProviderQuotaReport, ProviderQuotaRou
  * so a provider that did not opt in keeps its dev-era cache and join behaviour unchanged.
  */
 export const keyReportCredentialIds = new WeakMap<ProviderQuotaReport, string>();
+// A traffic binding validates display ownership without changing the producer's reset identity.
+const trafficCredentials = new WeakMap<ProviderQuotaReport, { digest: string; reference?: string; generation: number }>();
 const keyReportDestinations = new WeakMap<ProviderQuotaReport, { adapter: string; baseUrl: string }>();
 /**
  * Whether a probe-bound report still describes the provider as it is configured NOW.
@@ -40,13 +43,16 @@ const keyReportDestinations = new WeakMap<ProviderQuotaReport, { adapter: string
  * not an identity, and two distinct keys can share it.
  */
 export function keyReportCredentialCurrent(value: ProviderQuotaReport, provider: OcxProviderConfig | undefined, passive = false): boolean {
-  const captured = keyReportCredentialIds.get(value);
+  const traffic = trafficCredentials.get(value);
+  const captured = traffic?.digest ?? keyReportCredentialIds.get(value);
   if (!captured) return true;
   if (!provider || provider.disabled || (provider.authMode ?? "key") !== "key") return false;
   const destination = keyReportDestinations.get(value);
   if (!destination || destination.adapter !== provider.adapter || destination.baseUrl !== provider.baseUrl) return false;
   // A passive read cannot open the OS keychain or publish credential observations.
-  if (passive && isKeychainReference(provider.apiKey)) return false;
+  if (passive && isKeychainReference(provider.apiKey)) {
+    return !!traffic && traffic.reference === provider.apiKey && traffic.generation === providerKeyResolutionGeneration();
+  }
   const current = (passive ? resolveEnvValue(provider.apiKey) : resolveProviderApiKey(provider.apiKey))?.trim();
   return !!current && createHash("sha256").update(current).digest("hex") === captured;
 }
@@ -153,13 +159,46 @@ export function providerReportEpochChanged(captured: ReadonlyMap<string, number>
   return (providerReportEpochs.get(provider) ?? 0) !== (captured.get(provider) ?? 0);
 }
 
+/** Retire older aggregate probes for one provider without dropping its current row. */
+export function advanceProviderReportEpoch(provider: string): void {
+  providerReportEpochs.set(provider, (providerReportEpochs.get(provider) ?? 0) + 1);
+}
+
+/** Preserve scoped traffic refreshes that finished while an aggregate probe was awaiting. */
+export function reconcileChangedProviderReports(rows: Map<string, ProviderQuotaReport>, epochs: ReadonlyMap<string, number>, config: OcxConfig): void {
+  for (const name of Object.keys(config.providers)) {
+    if (!providerReportEpochChanged(epochs, name)) continue;
+    const row = cache?.response.reports.find(item => item.provider === name);
+    if (row && isProviderQuotaReportCurrent(row) && keyReportCredentialCurrent(row, config.providers[name])) rows.set(name, row);
+    else rows.delete(name);
+  }
+}
+
+/** A failed first dashboard probe can retain an individually validated traffic report. */
+export function previousProviderReports(key: string, config: OcxConfig): ProviderQuotaReport[] {
+  const held = cache;
+  if (!held) return [];
+  // A retired traffic row is not evidence that this collection raced a credential change.
+  // Exclude it before the collector checks its fresh probe results for mismatches.
+  return held.response.reports.filter(row => trafficCredentials.has(row)
+    ? keyReportCredentialCurrent(row, config.providers[row.provider])
+    : held.key === key);
+}
+
+/** Capture the keychain resolution generation while the actual credential is held. */
+export function bindTrafficReport(row: ProviderQuotaReport, provider: OcxProviderConfig, credential: string, generation: number): void {
+  trafficCredentials.set(row, { digest: createHash("sha256").update(credential).digest("hex"),
+    reference: isKeychainReference(provider.apiKey) ? provider.apiKey : undefined, generation });
+  keyReportDestinations.set(row, { adapter: provider.adapter, baseUrl: provider.baseUrl });
+}
+
 /**
  * Provider-scoped invalidation: drop one provider's report and routing row. The global epoch
  * is untouched, so another provider's cached row and in-flight commit authority survive; an
  * aggregate already in flight drops only this provider's row when it publishes.
  */
 export function clearProviderQuotaCacheFor(provider: string): void {
-  providerReportEpochs.set(provider, (providerReportEpochs.get(provider) ?? 0) + 1);
+  advanceProviderReportEpoch(provider);
   if (!cache) return;
   const reports = cache.response.reports.filter(report => report.provider !== provider);
   cache = { ...cache, response: { ...cache.response, reports } };
