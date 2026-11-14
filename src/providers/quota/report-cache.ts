@@ -1,3 +1,4 @@
+import { providerKeyResolutionGeneration } from "../api-key-resolve";
 import { decisionQuotaSinkActive, invalidateDecisionKeyQuotas, replaceCollectedDecisionQuotas, type AntigravityQuotaObservation, type AntigravityQuotaReceipt, type DecisionKeyObservation } from "../../lib/decision-quota-sink";
 import { providerDecisionWindows } from "../quota-decision-publication";
 import type { DecisionQuotaWindow } from "../quota-decision-snapshot";
@@ -31,6 +32,8 @@ export const routingEvidence = new WeakMap<ProviderQuotaReport, ProviderQuotaRou
  * so a provider that did not opt in keeps its dev-era cache and join behaviour unchanged.
  */
 export const keyReportCredentialIds = new WeakMap<ProviderQuotaReport, string>();
+// A traffic binding validates display ownership without changing the producer's reset identity.
+const trafficCredentials = new WeakMap<ProviderQuotaReport, { digest: string; reference?: string; generation: number }>();
 const keyReportDestinations = new WeakMap<ProviderQuotaReport, { adapter: string; baseUrl: string }>();
 /**
  * Whether a probe-bound report still describes the provider as it is configured NOW.
@@ -40,13 +43,16 @@ const keyReportDestinations = new WeakMap<ProviderQuotaReport, { adapter: string
  * not an identity, and two distinct keys can share it.
  */
 export function keyReportCredentialCurrent(value: ProviderQuotaReport, provider: OcxProviderConfig | undefined, passive = false): boolean {
-  const captured = keyReportCredentialIds.get(value);
+  const traffic = trafficCredentials.get(value);
+  const captured = traffic?.digest ?? keyReportCredentialIds.get(value);
   if (!captured) return true;
   if (!provider || provider.disabled || (provider.authMode ?? "key") !== "key") return false;
   const destination = keyReportDestinations.get(value);
   if (!destination || destination.adapter !== provider.adapter || destination.baseUrl !== provider.baseUrl) return false;
   // A passive read cannot open the OS keychain or publish credential observations.
-  if (passive && isKeychainReference(provider.apiKey)) return false;
+  if (passive && isKeychainReference(provider.apiKey)) {
+    return !!traffic && traffic.reference === provider.apiKey && traffic.generation === providerKeyResolutionGeneration();
+  }
   const current = (passive ? resolveEnvValue(provider.apiKey) : resolveProviderApiKey(provider.apiKey))?.trim();
   return !!current && createHash("sha256").update(current).digest("hex") === captured;
 }
@@ -168,9 +174,16 @@ export function reconcileChangedProviderReports(rows: Map<string, ProviderQuotaR
   }
 }
 
-/** Bind a scoped key probe's display row to the exact credential and destination sent. */
-export function bindKeyReportCredential(row: ProviderQuotaReport, provider: OcxProviderConfig, credential: string): void {
-  keyReportCredentialIds.set(row, createHash("sha256").update(credential).digest("hex"));
+/** A failed first dashboard probe can retain an individually validated traffic report. */
+export function previousProviderReports(key: string): ProviderQuotaReport[] {
+  if (!cache) return [];
+  return cache.key === key ? cache.response.reports : cache.response.reports.filter(row => trafficCredentials.has(row));
+}
+
+/** Capture the keychain resolution generation while the actual credential is held. */
+export function bindTrafficReport(row: ProviderQuotaReport, provider: OcxProviderConfig, credential: string, generation: number): void {
+  trafficCredentials.set(row, { digest: createHash("sha256").update(credential).digest("hex"),
+    reference: isKeychainReference(provider.apiKey) ? provider.apiKey : undefined, generation });
   keyReportDestinations.set(row, { adapter: provider.adapter, baseUrl: provider.baseUrl });
 }
 
@@ -386,7 +399,10 @@ export function keyReport(
 ): ProviderQuotaReport | null {
   const result = report(provider, source, quota);
   if (!result) return result;
-  if (options?.bindCredential === true) bindKeyReportCredential(result, config, probedCredential);
+  if (options?.bindCredential === true) {
+    keyReportCredentialIds.set(result, createHash("sha256").update(probedCredential).digest("hex"));
+    keyReportDestinations.set(result, { adapter: config.adapter, baseUrl: config.baseUrl });
+  }
   if (!inferenceQuota) return result;
   const binding = providerQuotaRoutingBinding(provider, config, probedCredential);
   if (binding) routingEvidence.set(result, { quota: inferenceQuota, binding });

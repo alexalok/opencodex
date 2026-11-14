@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, expect, jest, test } from "bun:test";
-import { clearProviderQuotaCache, clearProviderQuotaCacheFor, fetchProviderQuotaReports } from "../../src/providers/quota";
+import { clearProviderQuotaCache, clearProviderQuotaCacheFor, fetchProviderQuotaReports, flushProviderQuotaObservationsForTests } from "../../src/providers/quota";
 import { bindTrafficQuotaConfig, refreshQuotaAfterRequest } from "../../src/providers/quota/traffic-refresh";
 import { getProviderQuotaReportCache } from "../../src/providers/quota/report-cache";
 import { setLiveStateStoreConfig } from "../../src/lib/state-store-registrations";
 import { runPassiveRead } from "../../src/lib/passive-read";
+import { invalidateResolvedProviderKeyCache, setProviderKeychainEntryFactoryForTests } from "../../src/providers/api-key-resolve";
+import { setQuotaResetSink } from "../../src/quota/reset-observer";
+import { resetQuotaResetStoreForTests } from "../../src/quota/reset-seen-store";
 import { ensureQuotaPoolIdentity } from "../../src/quota-pool/identity";
 import { readQuotaTray } from "../../src/quota-pool/tray";
 import { addFinalRequestLog } from "../../src/server/request-log";
@@ -144,4 +147,49 @@ test("transient probe failure preserves last-good report and terminal failure re
   globalThis.fetch = (async () => Response.json({}, { status: 401 })) as typeof fetch;
   complete(); await settle();
   expect((await held()).reports).toEqual([]);
+});
+
+test("first dashboard collection retains traffic evidence on transient failure", async () => {
+  complete(); await settle();
+  const row = (await held()).reports[0]!;
+  expect(row.provider).toBe("zai");
+  globalThis.fetch = (async () => Response.json({}, { status: 503 })) as typeof fetch;
+  expect((await fetchProviderQuotaReports(config)).reports).toEqual([row]);
+  expect((await held()).reports).toEqual([row]);
+  config.providers.zai!.apiKey = "another-test-key";
+  expect((await fetchProviderQuotaReports(config)).reports).toEqual([]);
+});
+
+test("passive keychain quota survives until its resolution is invalidated, without a keychain read", async () => {
+  let reads = 0;
+  setProviderKeychainEntryFactoryForTests(() => ({
+    getPassword: () => { reads++; return "test-held-keychain-key"; }, setPassword: () => {}, deletePassword: () => true,
+  }));
+  try {
+    config.providers.zai!.apiKey = "keychain:zai";
+    complete(); await settle();
+    expect((await held()).reports.map(row => row.provider)).toEqual(["zai"]);
+    expect(reads).toBe(1);
+    invalidateResolvedProviderKeyCache();
+    expect((await held()).reports).toEqual([]);
+    expect(reads).toBe(1);
+    expect(calls).toBe(1);
+  } finally { setProviderKeychainEntryFactoryForTests(null); }
+});
+
+test("a traffic probe delivers reset detection against the dashboard baseline", async () => {
+  const windows: string[] = [];
+  resetQuotaResetStoreForTests();
+  setQuotaResetSink(event => { windows.push(event.window); });
+  try {
+    const reset = Date.now() + 3_600_000;
+    globalThis.fetch = (async () => Response.json({ data: { limits: [
+      { type: "TOKENS_LIMIT", unit: 3, number: 5, percentage: percent, nextResetTime: reset },
+    ] } })) as typeof fetch;
+    percent = 96; await fetchProviderQuotaReports(config);
+    await flushProviderQuotaObservationsForTests();
+    percent = 2; complete(); await settle();
+    await flushProviderQuotaObservationsForTests();
+    expect(windows).toEqual(["5h"]);
+  } finally { setQuotaResetSink(null); resetQuotaResetStoreForTests(); }
 });

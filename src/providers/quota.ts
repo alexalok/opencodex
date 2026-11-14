@@ -24,7 +24,7 @@ import {
   accountReportCurrent, observedQuotaFor,
   AUTHORITATIVE_EMPTY_QUOTA,
   bumpProviderQuotaInvalidationEpoch,
-  captureProviderReportEpochs, reconcileChangedProviderReports,
+  captureProviderReportEpochs, reconcileChangedProviderReports, previousProviderReports,
   cacheKeyWithAggregationState,
   getProviderQuotaReportCache,
   hasCodexPoolProvider, heldProviderQuotaReports,
@@ -200,7 +200,7 @@ export function providerObservationAccountKeyForTests(provider: string, config: 
   return providerObservationAccountKey(provider, config);
 }
 
-function notifyProviderQuotaSnapshot(
+export function notifyProviderQuotaSnapshot(
   reports: ReadonlyArray<ProviderQuotaReport>,
   config: OcxConfig,
 ): void {
@@ -273,8 +273,7 @@ export async function fetchProviderQuotaReports(config: OcxConfig, forceRefresh 
   const epoch = invalidationEpoch;
 
   const promise = (async (): Promise<ProviderQuotaResponse> => {
-    const previousCache = getProviderQuotaReportCache();
-    const previous = previousCache && previousCache.key === key ? previousCache.response.reports : [];
+    const previous = previousProviderReports(key);
     const probeResults = await Promise.all(
       Object.entries(config.providers).map(([name, provider]) => (
         maybeFetchProviderQuota(name, provider, config, forceRefresh, prefetchedCodexSnapshot)

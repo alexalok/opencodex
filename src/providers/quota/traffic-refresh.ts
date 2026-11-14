@@ -2,12 +2,14 @@ import { isPassiveRead } from "../../lib/passive-read";
 import { captureConfigGeneration } from "../../lib/state-store-sweeper";
 import { didRunOptionalShutdownHooks, registerOptionalShutdownHook } from "../../lib/optional-shutdown-hooks";
 import type { OcxConfig } from "../../types";
+import { notifyProviderQuotaSnapshot } from "../quota";
+import { isKeychainReference, providerKeyResolutionGeneration } from "../api-key-resolve";
 import { resolveProviderApiKey } from "../key-store";
 import { replaceCachedProviderQuotas } from "../quota-routing-cache";
 import { mayCommitProviderQuotaKey } from "./account-cache";
 import { keyQuotaReaderForProvider } from "./vendor-probes-key";
 import {
-  advanceProviderReportEpoch, AUTHORITATIVE_EMPTY_QUOTA, bindKeyReportCredential,
+  advanceProviderReportEpoch, AUTHORITATIVE_EMPTY_QUOTA, bindTrafficReport,
   captureProviderReportEpochs, getProviderQuotaReportCache, isProviderQuotaReportCurrent,
   invalidationEpoch, keyReportCredentialCurrent, LAST_GOOD_MAX_AGE_MS,
   providerReportEpochChanged, publishCollectedDecisionQuota, routingEvidence,
@@ -72,12 +74,14 @@ async function probe(name: string): Promise<void> {
   // Traffic refresh never refreshes OAuth or resolves another account's token.
   if (!credential) return;
   const snapshot = { ...provider };
+  const keyGeneration = providerKeyResolutionGeneration();
   const epoch = invalidationEpoch, epochs = captureProviderReportEpochs(), generation = captureConfigGeneration();
   const result = await reader(name, snapshot);
   const current = config.providers[name];
   if (config !== liveConfig || epoch !== invalidationEpoch || providerReportEpochChanged(epochs, name)
     || !mayCommitProviderQuotaKey(name, generation) || !current || !keyQuotaReaderForProvider(name, current)
     || current.adapter !== snapshot.adapter || current.baseUrl !== snapshot.baseUrl
+    || (isKeychainReference(snapshot.apiKey) && (current.apiKey !== snapshot.apiKey || keyGeneration !== providerKeyResolutionGeneration()))
     || resolveProviderApiKey(current.apiKey)?.trim() !== credential) return;
   if (result === null) return; // A transient failure retains the original last-good timestamp.
   const cache = getProviderQuotaReportCache();
@@ -86,7 +90,7 @@ async function probe(name: string): Promise<void> {
     && isProviderQuotaReportCurrent(row) && keyReportCredentialCurrent(row, config.providers[row.provider])
     && (row.observed === true || Date.now() - row.updatedAt < LAST_GOOD_MAX_AGE_MS));
   if (result !== TERMINAL_QUOTA_FAILURE && result !== AUTHORITATIVE_EMPTY_QUOTA) {
-    bindKeyReportCredential(result, snapshot, credential);
+    bindTrafficReport(result, snapshot, credential, keyGeneration);
     if (!keyReportCredentialCurrent(result, current)) return;
     reports.push(result);
   }
@@ -95,4 +99,5 @@ async function probe(name: string): Promise<void> {
   setProviderQuotaReportCache({ key: cache?.key ?? "", ts: cache?.ts ?? 0, response: { generatedAt: Date.now(), reports } });
   replaceCachedProviderQuotas(reports, routingEvidence);
   publishCollectedDecisionQuota(reports, config);
+  if (result !== TERMINAL_QUOTA_FAILURE && result !== AUTHORITATIVE_EMPTY_QUOTA) notifyProviderQuotaSnapshot([result], config);
 }
