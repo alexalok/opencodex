@@ -193,3 +193,20 @@ test("a traffic probe delivers reset detection against the dashboard baseline", 
     expect(windows).toEqual(["5h"]);
   } finally { setQuotaResetSink(null); resetQuotaResetStoreForTests(); }
 });
+
+for (const mutation of ["remove", "disable", "rotate"] as const) {
+  test(`retired traffic report cannot block another provider's aggregate publication: ${mutation}`, async () => {
+    complete(); await settle();
+    expect((await held()).reports.map(row => row.provider)).toEqual(["zai"]);
+    config.providers.glm = { ...config.providers.zai!, apiKey: "test-surviving-key" };
+    if (mutation === "remove") delete config.providers.zai;
+    if (mutation === "disable") config.providers.zai!.disabled = true;
+    if (mutation === "rotate") config.providers.zai!.apiKey = "test-rotated-key";
+    globalThis.fetch = (async (_url, init) => new Headers(init?.headers).get("Authorization") === "Bearer test-surviving-key"
+      ? response(24) : Response.json({}, { status: 503 })) as typeof fetch;
+    await fetchProviderQuotaReports(config);
+    const reports = (await held()).reports;
+    expect(reports.map(row => row.provider)).toEqual(["glm"]);
+    expect(reports[0]!.quota.fiveHourPercent).toBe(24);
+  });
+}

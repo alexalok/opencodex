@@ -273,7 +273,7 @@ export async function fetchProviderQuotaReports(config: OcxConfig, forceRefresh 
   const epoch = invalidationEpoch;
 
   const promise = (async (): Promise<ProviderQuotaResponse> => {
-    const previous = previousProviderReports(key);
+    const previous = previousProviderReports(key, config);
     const probeResults = await Promise.all(
       Object.entries(config.providers).map(([name, provider]) => (
         maybeFetchProviderQuota(name, provider, config, forceRefresh, prefetchedCodexSnapshot)

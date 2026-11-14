@@ -175,9 +175,13 @@ export function reconcileChangedProviderReports(rows: Map<string, ProviderQuotaR
 }
 
 /** A failed first dashboard probe can retain an individually validated traffic report. */
-export function previousProviderReports(key: string): ProviderQuotaReport[] {
+export function previousProviderReports(key: string, config: OcxConfig): ProviderQuotaReport[] {
   if (!cache) return [];
-  return cache.key === key ? cache.response.reports : cache.response.reports.filter(row => trafficCredentials.has(row));
+  // A retired traffic row is not evidence that this collection raced a credential change.
+  // Exclude it before the collector checks its fresh probe results for mismatches.
+  return cache.response.reports.filter(row => trafficCredentials.has(row)
+    ? keyReportCredentialCurrent(row, config.providers[row.provider])
+    : cache.key === key);
 }
 
 /** Capture the keychain resolution generation while the actual credential is held. */
