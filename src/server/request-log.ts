@@ -1,3 +1,4 @@
+import { refreshQuotaAfterRequest } from "../providers/quota/traffic-refresh";
 import { existsSync, readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { normalizeRecordedClient, type UsageClient } from "../usage/client";
@@ -1500,6 +1501,7 @@ function writeFinalRequestLog(
   // it ended. The terminal usage belongs to the last send that left; the ledger resolves every
   // earlier send of this request as unresolved spend rather than handing its tokens back.
   logCtx.spendTracker?.settle(logCtx.usage);
+  if (!logCtx.localTerminalReason) refreshQuotaAfterRequest(logCtx);
   const existing = finalizedUsage(
     logCtx.providerAdapter ?? logCtx.provider,
     logCtx.usage,

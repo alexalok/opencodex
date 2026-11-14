@@ -153,13 +153,34 @@ export function providerReportEpochChanged(captured: ReadonlyMap<string, number>
   return (providerReportEpochs.get(provider) ?? 0) !== (captured.get(provider) ?? 0);
 }
 
+/** Retire older aggregate probes for one provider without dropping its current row. */
+export function advanceProviderReportEpoch(provider: string): void {
+  providerReportEpochs.set(provider, (providerReportEpochs.get(provider) ?? 0) + 1);
+}
+
+/** Preserve scoped traffic refreshes that finished while an aggregate probe was awaiting. */
+export function reconcileChangedProviderReports(rows: Map<string, ProviderQuotaReport>, epochs: ReadonlyMap<string, number>, config: OcxConfig): void {
+  for (const name of Object.keys(config.providers)) {
+    if (!providerReportEpochChanged(epochs, name)) continue;
+    const row = cache?.response.reports.find(item => item.provider === name);
+    if (row && isProviderQuotaReportCurrent(row) && keyReportCredentialCurrent(row, config.providers[name])) rows.set(name, row);
+    else rows.delete(name);
+  }
+}
+
+/** Bind a scoped key probe's display row to the exact credential and destination sent. */
+export function bindKeyReportCredential(row: ProviderQuotaReport, provider: OcxProviderConfig, credential: string): void {
+  keyReportCredentialIds.set(row, createHash("sha256").update(credential).digest("hex"));
+  keyReportDestinations.set(row, { adapter: provider.adapter, baseUrl: provider.baseUrl });
+}
+
 /**
  * Provider-scoped invalidation: drop one provider's report and routing row. The global epoch
  * is untouched, so another provider's cached row and in-flight commit authority survive; an
  * aggregate already in flight drops only this provider's row when it publishes.
  */
 export function clearProviderQuotaCacheFor(provider: string): void {
-  providerReportEpochs.set(provider, (providerReportEpochs.get(provider) ?? 0) + 1);
+  advanceProviderReportEpoch(provider);
   if (!cache) return;
   const reports = cache.response.reports.filter(report => report.provider !== provider);
   cache = { ...cache, response: { ...cache.response, reports } };
@@ -365,10 +386,7 @@ export function keyReport(
 ): ProviderQuotaReport | null {
   const result = report(provider, source, quota);
   if (!result) return result;
-  if (options?.bindCredential === true) {
-    keyReportCredentialIds.set(result, createHash("sha256").update(probedCredential).digest("hex"));
-    keyReportDestinations.set(result, { adapter: config.adapter, baseUrl: config.baseUrl });
-  }
+  if (options?.bindCredential === true) bindKeyReportCredential(result, config, probedCredential);
   if (!inferenceQuota) return result;
   const binding = providerQuotaRoutingBinding(provider, config, probedCredential);
   if (binding) routingEvidence.set(result, { quota: inferenceQuota, binding });

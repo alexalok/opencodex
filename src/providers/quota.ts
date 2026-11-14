@@ -24,7 +24,7 @@ import {
   accountReportCurrent, observedQuotaFor,
   AUTHORITATIVE_EMPTY_QUOTA,
   bumpProviderQuotaInvalidationEpoch,
-  captureProviderReportEpochs, providerReportEpochChanged,
+  captureProviderReportEpochs, reconcileChangedProviderReports,
   cacheKeyWithAggregationState,
   getProviderQuotaReportCache,
   hasCodexPoolProvider, heldProviderQuotaReports,
@@ -326,8 +326,8 @@ export async function fetchProviderQuotaReports(config: OcxConfig, forceRefresh 
       byProvider.delete(provider);
       generationMismatchedProviders.delete(provider);
     }
-    // A provider-scoped clear during this probe retires only that provider's row.
-    for (const provider of [...byProvider.keys()]) if (providerReportEpochChanged(providerEpochs, provider)) byProvider.delete(provider);
+    // A scoped clear or traffic refresh supersedes only its own provider's row.
+    reconcileChangedProviderReports(byProvider, providerEpochs, config);
 
     const response = { generatedAt: Date.now(), reports: [...byProvider.values()] };
     // Commit only when this probe still holds authority (no clear/force superseded it).
