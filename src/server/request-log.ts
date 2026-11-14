@@ -4,8 +4,8 @@ import { randomBytes } from "node:crypto";
 import { normalizeRecordedClient, type UsageClient } from "../usage/client";
 import { anthropicAccountTagField, stampApiKeyAccountLabel, usesApiKeyAccount } from "../providers/label";
 import { KEY_ACCOUNT_LOG_LABEL_RE } from "../codex/account-label";
-import { attemptAccountChanged, sealRequestAttemptIdentity } from "./request-log-account-rotation";
-export { sealRequestAttemptIdentity };
+import { attemptAccountChanged, beginRequestAttempt, sealRequestAttemptIdentity } from "./request-log-account-rotation";
+export { beginRequestAttempt, sealRequestAttemptIdentity };
 export { noteAttemptRecoveryWithheld } from "./request-log-attempt-recovery";
 import { captureUpstreamTerminalDiagnostics, upstreamDiagnosticLogFields, type UpstreamErrorDiagnostics, type UpstreamErrorPayload } from "./request-log-terminal-status";
 export { noteUpstreamRequestId } from "./request-log-terminal-status";
@@ -1744,25 +1744,6 @@ function finalizedUsage(
     status: usageStatusForFinalLog(loggedUsage),
     ...(loggedUsage ? { usage: loggedUsage } : {}),
     ...(totalTokens !== undefined ? { totalTokens } : {}),
-  };
-}
-
-export function beginRequestAttempt(
-  ordinal: number,
-  provider: string,
-  model: string,
-  adapter: string,
-): PersistedUsageAttempt {
-  return {
-    ordinal,
-    provider,
-    model,
-    adapter,
-    status: 0,
-    durationMs: 0,
-    sendCount: 0,
-    recoveryKinds: [],
-    usageStatus: "unreported",
   };
 }
 
