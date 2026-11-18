@@ -452,7 +452,7 @@ test("hub catalog downloads project discovered natives without writing the persi
     expect(response!.headers.get("etag")).toBe(projected.etag);
     saveConfig(config);
     const { catalogRevisionForRoutes } = await import("../../src/server/management/link-child-ops-routes");
-    const revision = catalogRevisionForRoutes();
+    const revision = catalogRevisionForRoutes(config);
     expect(revision.current()?.etag).toBe(projected.etag);
     saveConfig({ ...config, port: 0, hostname: "127.0.0.1",
       apiKeys: [{ id: "hub-reader", name: "hub reader", key: "ocx_data_hubfixture", createdAt: "2026-08-30T00:00:00.000Z" }] });
@@ -469,6 +469,13 @@ test("hub catalog downloads project discovered natives without writing the persi
     expect(JSON.parse(hidden.body!).models.find((row: { slug: string }) => row.slug === future).visibility).toBe("hide");
     expect(hidden.etag).not.toBe(projected.etag);
     saveConfig({ ...config, disabledModels: [future] });
+    // Disk edits do not change the serving process's live policy until that object is updated.
+    expect(revision.current()?.etag).toBe(projected.etag);
+    expect(revision.current()?.etag).toBe((await serializePersistedCatalog(config)).etag);
+    const otherConfig = { ...config, disabledModels: [future] };
+    expect(catalogRevisionForRoutes(otherConfig).current()?.etag).toBe(hidden.etag);
+    expect(revision.current()?.etag).toBe(projected.etag);
+    config.disabledModels = [future];
     expect(revision.current()?.etag).toBe(hidden.etag);
     const omitted = await serializePersistedCatalog({ ...config, disabledModels: [future], omitDisabledNativeModels: true });
     expect(JSON.parse(omitted.body!).models.map((row: { slug: string }) => row.slug)).toEqual(["mock/test-model"]);
@@ -480,12 +487,14 @@ test("hub catalog downloads project discovered natives without writing the persi
     const filledPicker = JSON.parse((await serializePersistedCatalog(pickerConfig)).body!).models;
     expect(filledPicker[0]).toEqual(converged.models[0]);
     expect(filledPicker.some((model: { slug: string }) => model.slug === `work/${future}`)).toBe(true);
+    delete config.disabledModels;
     saveConfig(config);
     const beforeDiscovery = revision.current()?.etag;
     recordDiscoveredNativeModels([{ slug: "gpt-9-next-download", display_name: "Next model", supported_reasoning_levels: [], supported_in_api: true, visibility: "list" }], "99.0.0");
     expect(revision.current()?.etag).not.toBe(beforeDiscovery);
     expect(revision.current()?.etag).toBe((await serializePersistedCatalog(config)).etag);
-    saveConfig({ ...config, runtimeRole: "standalone" });
+    config.runtimeRole = "standalone";
+    saveConfig(config);
     expect(revision.current()?.etag).toBe((await serializePersistedCatalog({ ...config, runtimeRole: "standalone" })).etag);
   } finally { resetDiscoveredNativeModelsForTests(); }
 });
