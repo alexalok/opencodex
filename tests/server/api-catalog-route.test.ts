@@ -406,7 +406,7 @@ describe("GET|HEAD /v1/catalog least-privilege data-plane route (#809)", () => {
 
 test("hub catalog downloads project discovered natives without writing the persisted catalog", async () => {
   const { recordDiscoveredNativeModels, resetDiscoveredNativeModelsForTests } = await import("../../src/codex/catalog/discovered-natives");
-  const { serializePersistedCatalog } = await import("../../src/server/catalog-download");
+  const { catalogProjectionKey, serializePersistedCatalog } = await import("../../src/server/catalog-download");
   isolatedCodexHome = installIsolatedCodexHome("ocx-hub-discovered-download-");
   const file = join(isolatedCodexHome.path, "opencodex-catalog.json");
   const future = "gpt-9-download-test";
@@ -439,6 +439,13 @@ test("hub catalog downloads project discovered natives without writing the persi
     expect(picker.find((model: { slug: string }) => model.slug === `work/${future}`)).toMatchObject({ visibility: "list", context_window: 123000 });
     const disabledPicker = JSON.parse((await serializePersistedCatalog({ ...pickerConfig, disabledModels: [`work/${future}`] })).body!).models;
     expect(disabledPicker.find((model: { slug: string }) => model.slug === `work/${future}`).visibility).toBe("hide");
+    const exactHidden = { ...pickerConfig, disabledModels: [`work/${future}`] };
+    const exactOmitted = { ...exactHidden, omitDisabledNativeModels: true };
+    const exactModels = JSON.parse((await serializePersistedCatalog(exactOmitted)).body!).models;
+    expect(exactModels.some((model: { slug: string }) => model.slug === `work/${future}`)).toBe(false);
+    expect(exactModels.some((model: { slug: string }) => model.slug === future)).toBe(true);
+    expect(exactModels[0]).toEqual(JSON.parse(CATALOG_FIXTURE_BYTES).models[0]);
+    expect(catalogProjectionKey(exactOmitted)).not.toBe(catalogProjectionKey(exactHidden));
     const omittedPicker = JSON.parse((await serializePersistedCatalog({ ...pickerConfig, disabledModels: [future], omitDisabledNativeModels: true })).body!).models;
     expect(omittedPicker.map((model: { slug: string }) => model.slug)).toEqual(["mock/test-model"]);
     const nativeV1 = await serializePersistedCatalog({ ...config, multiAgentMode: "v2", keepNativeChatGptOnV1: true });

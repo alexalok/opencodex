@@ -22,13 +22,14 @@ import { websocketsEnabled } from "../config/feature-flags";
 import { resolveMultiAgentMode } from "../config/multi-agent-surface";
 
 import { trustedAccountBoundNativeCatalogSlug, visibleCodexAccountSelectors } from "../codex/catalog/account-models";
+import { omitDisabledNativeCatalogEntries } from "../codex/catalog/native-omission";
 import { discoveredNativeModelsGeneration } from "../codex/catalog/discovered-natives";
 
 /** In-memory cache identity: only public projection policy, never credentials or full model rows. */
 export function catalogProjectionKey(config: OcxConfig): string {
   if (config.runtimeRole !== "hub") return "persisted";
   return JSON.stringify(["hub", discoveredNativeModelsGeneration(), nativeContextLimits(config),
-    config.disabledModels, [...desktopAllowlistSuppressedNativeSlugs(config)], shouldIncludeNativeOpenAi(config),
+    config.disabledModels, config.omitDisabledNativeModels, [...desktopAllowlistSuppressedNativeSlugs(config)], shouldIncludeNativeOpenAi(config),
     shouldIncludeAccountBoundNativeOpenAi(config), visibleCodexAccountSelectors(config), config.subagentModels,
     config.modelPickerOrder, websocketsEnabled(config), resolveMultiAgentMode(config), config.keepNativeChatGptOnV1]);
 }
@@ -104,7 +105,7 @@ export function projectHubDiscoveries(catalog: RawCatalog | null, config: OcxCon
     && slugs.includes(trustedAccountBoundNativeCatalogSlug(entry) ?? entry.slug));
   applyNativeVisibility(entries, new Set(config.disabledModels ?? []), selectors.length > 0);
   applyFullModelPickerOrder(entries, config.modelPickerOrder ?? []);
-  return { ...catalog, models: [...existing, ...entries] };
+  return { ...catalog, models: [...existing, ...omitDisabledNativeCatalogEntries(entries, config)] };
 }
 
 /**
