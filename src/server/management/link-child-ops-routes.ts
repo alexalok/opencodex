@@ -1,5 +1,5 @@
 import { loadConfig } from "../../config";
-import { projectHubDiscoveries } from "../catalog-download";
+import { catalogProjectionKey, projectHubDiscoveries } from "../catalog-download";
 import { DEFAULT_IDLE_AFTER_MS, isLinkIdle } from "../../link/child-activity";
 import { createCatalogRevisionMonitor, type CatalogRevisionMonitor } from "../../link/child-catalog-freshness";
 import { observeChild } from "../../link/child-observe";
@@ -31,7 +31,7 @@ let revisionMonitor: CatalogRevisionMonitor | undefined;
 export function catalogRevisionForRoutes(): CatalogRevisionMonitor {
   return revisionMonitor ??= createCatalogRevisionMonitor({
     catalogPath: () => readCodexCatalogPath(),
-    alwaysRead: () => loadConfig().runtimeRole === "hub",
+    projectionKey: () => catalogProjectionKey(loadConfig()),
     read: path => {
       const config = loadConfig();
       const persisted = readCatalog(path);
