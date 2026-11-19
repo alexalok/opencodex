@@ -437,6 +437,12 @@ test("hub catalog downloads project discovered natives without writing the persi
     const picker = JSON.parse((await serializePersistedCatalog(pickerConfig)).body!).models;
     expect(picker.find((model: { slug: string }) => model.slug === future).visibility).toBe("hide");
     expect(picker.find((model: { slug: string }) => model.slug === `work/${future}`)).toMatchObject({ visibility: "list", context_window: 123000 });
+    const reviewerConfig = { ...pickerConfig, autoReviewOverride: { enabled: true, model: "mock/test-model" } };
+    const reviewed = JSON.parse((await serializePersistedCatalog(reviewerConfig)).body!).models;
+    expect(reviewed.find((model: { slug: string }) => model.slug === future).auto_review_model_override).toBe("mock/test-model");
+    expect(reviewed.find((model: { slug: string }) => model.slug === `work/${future}`).auto_review_model_override).toBe("mock/test-model");
+    expect(reviewed[0]).toEqual(JSON.parse(CATALOG_FIXTURE_BYTES).models[0]);
+    expect(catalogProjectionKey(reviewerConfig)).not.toBe(catalogProjectionKey(pickerConfig));
     const disabledPicker = JSON.parse((await serializePersistedCatalog({ ...pickerConfig, disabledModels: [`work/${future}`] })).body!).models;
     expect(disabledPicker.find((model: { slug: string }) => model.slug === `work/${future}`).visibility).toBe("hide");
     const exactHidden = { ...pickerConfig, disabledModels: [`work/${future}`] };
@@ -505,3 +511,4 @@ test("hub catalog downloads project discovered natives without writing the persi
     expect(revision.current()?.etag).toBe((await serializePersistedCatalog({ ...config, runtimeRole: "standalone" })).etag);
   } finally { resetDiscoveredNativeModelsForTests(); }
 });
+

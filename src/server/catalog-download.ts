@@ -22,6 +22,8 @@ import { websocketsEnabled } from "../config/feature-flags";
 import { resolveMultiAgentMode } from "../config/multi-agent-surface";
 
 import { trustedAccountBoundNativeCatalogSlug, visibleCodexAccountSelectors } from "../codex/catalog/account-models";
+import { finalizeAutoReviewModelOverride, resolveAutoReviewOverrideSelector } from "../codex/catalog/auto-review";
+import { readConfiguredAutoReviewModel } from "../codex/catalog/parsing";
 import { omitDisabledNativeCatalogEntries } from "../codex/catalog/native-omission";
 import { discoveredNativeModelsGeneration } from "../codex/catalog/discovered-natives";
 
@@ -31,7 +33,9 @@ export function catalogProjectionKey(config: OcxConfig): string {
   return JSON.stringify(["hub", discoveredNativeModelsGeneration(), nativeContextLimits(config),
     config.disabledModels, config.omitDisabledNativeModels, [...desktopAllowlistSuppressedNativeSlugs(config)], shouldIncludeNativeOpenAi(config),
     shouldIncludeAccountBoundNativeOpenAi(config), visibleCodexAccountSelectors(config), config.subagentModels,
-    config.modelPickerOrder, websocketsEnabled(config), resolveMultiAgentMode(config), config.keepNativeChatGptOnV1]);
+    config.modelPickerOrder, resolveAutoReviewOverrideSelector(config) ?? readConfiguredAutoReviewModel(),
+    Object.entries(config.providers ?? {}).map(([name, provider]) => [name, provider.autoReviewModel, provider.autoReviewModelOverrides]),
+    websocketsEnabled(config), resolveMultiAgentMode(config), config.keepNativeChatGptOnV1]);
 }
 
 export { catalogEtag };
@@ -105,7 +109,10 @@ export function projectHubDiscoveries(catalog: RawCatalog | null, config: OcxCon
     && slugs.includes(trustedAccountBoundNativeCatalogSlug(entry) ?? entry.slug));
   applyNativeVisibility(entries, new Set(config.disabledModels ?? []), selectors.length > 0);
   applyFullModelPickerOrder(entries, config.modelPickerOrder ?? []);
-  return { ...catalog, models: [...existing, ...omitDisabledNativeCatalogEntries(entries, config)] };
+  const added = omitDisabledNativeCatalogEntries(entries, config);
+  // Resolve targets against the complete roster, without changing finalized persisted rows.
+  finalizeAutoReviewModelOverride([...existing.map(entry => ({ ...entry })), ...added], existing, config);
+  return { ...catalog, models: [...existing, ...added] };
 }
 
 /**
