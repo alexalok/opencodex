@@ -334,3 +334,17 @@ export interface ModelPresetView {
   totalCount: number;
   fallback?: string;
 }
+
+/** Compatibility export for the frozen classic dashboard. */
+export function routedModelOptions(
+  visible: readonly { value: string; label: string }[],
+  models: readonly ModelRow[],
+  saved?: string,
+): { value: string; label: string }[] {
+  const native = new Set(models.filter(model => model.native === true).map(model => model.namespaced));
+  const options = visible.filter(option => !native.has(option.value));
+  if (saved && !options.some(option => option.value === saved)) {
+    options.push({ value: saved, label: visible.find(option => option.value === saved)?.label ?? saved });
+  }
+  return options;
+}

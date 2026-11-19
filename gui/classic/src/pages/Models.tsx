@@ -78,7 +78,7 @@ import {
   freeOnlyInForce,
   modelPricingKnown,
   REASONING_EFFORT_LEVELS,
-  autoReviewModelOptions,
+  routedModelOptions,
   parseContextWindowDraft,
   type ModelPresetView,
   type ModelRow,
@@ -467,7 +467,7 @@ export default function Models({ apiBase, restartEpoch = 0, connected = false, c
   }, [models, shadowCall?.model, shadowCall?.sourceModels, shadowModelOptions]);
 
   const autoReviewOptions = useMemo(
-    () => [{ value: "", label: "—" }, ...autoReviewModelOptions(shadowModelOptions, autoReview?.model)],
+    () => [{ value: "", label: "—" }, ...routedModelOptions(shadowModelOptions, models, autoReview?.model)],
     [models, shadowModelOptions, autoReview?.model],
   );
 

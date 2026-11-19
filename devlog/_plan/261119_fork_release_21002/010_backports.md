@@ -47,7 +47,7 @@ OCX_DISABLE_MACOS_CI override. The prior native-startup test stabilization from
   projection and its live-config binding are backported.
 - Existing upstream local-control ingress remains trusted when adding IPv4
   loopback aliases.
-- The classic dashboard uses the renamed native-capable reviewer options helper.
+- The frozen classic dashboard retains its shared reviewer-helper compatibility export.
 - The paused-account search fixture asserts this base's fenced native-main 503
   refusal and zero upstream sends. The later upstream Pool-only routing policy
   is not pulled in merely to change that status to 401.

@@ -1891,14 +1891,9 @@ stay pending, and the Models page reports it so you can retry with `ocx sync`. F
 the setting with `ocx models auto-review status` or
 change it with `ocx models auto-review set <model|-> [--enabled <on|off>]`; use `-` to clear the
 model. CLI output recommends `ocx sync` when a refresh can be retried. If a refresh fails, the
-setting remains saved and the command exits 1. Resolve the failure before syncing. To give a routed
-provider its own — usually cheaper — reviewer, set the selector on that provider row in
-`~/.opencodex/config.json`:
+setting remains saved and the command exits 1. Resolve the failure before syncing. Set a provider-specific reviewer on its row in `~/.opencodex/config.json`:
 
-The model selector includes native GPT and routed provider models. Set **Reviewer reasoning**
-to override effort only for approval-review calls, or leave **Use requested effort** selected
-to preserve Codex’s choice. This works with a blank model selector too. Ordinary chats and
-`/review` calls are unaffected. Model limits and configured effort caps still apply.
+The model selector includes native GPT and routed provider models. Set **Reviewer reasoning** to override effort only for approval-review calls, or leave **Use requested effort** selected to preserve Codex’s choice. This works with a blank model selector too. Ordinary chats and `/review` calls are unaffected. Model limits and configured effort caps still apply.
 
 ```json
 {
