@@ -7,7 +7,7 @@ opencodex collects anonymous daily usage reports after the consent/disclosure ru
 This fork's collector withholds public project aggregates: `GET /v1/stats` returns **503** with
 `Cache-Control: no-store`, before reading database aggregates or cached responses. Reports carry
 client-mintable install hashes, so they cannot prove distinct users or establish a safe privacy
-threshold. This also withholds historical aggregates. Public statistics require a separately
+threshold. This also withholds historical aggregates from the [public project dashboard](/dashboard/). Public statistics require a separately
 reviewed identity/provenance design; a shared public secret or an environment flag cannot enable
 them. This source change does not deploy the Worker or recall responses distributed earlier.
 
