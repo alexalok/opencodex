@@ -315,7 +315,7 @@ export async function handleLinkRoutes(ctx: ManagementContext, suppliedState?: L
     // The same opt-in for each Home row's Child versions, catalog freshness, activity and operations.
     if (url.searchParams.get("children") === "1" && dto.role === "home") {
       const { attachLinkChildOpsForState } = await import("./link-child-ops-routes");
-      attachLinkChildOpsForState(dto, state, store, (ctx.deps.now ?? Date.now)());
+      attachLinkChildOpsForState(dto, state, store, ctx.config, (ctx.deps.now ?? Date.now)());
     }
     // A dashboard session also learns why it cannot join as a Child. The admin-token answer stays
     // the exact K16 document that `ocx link status` validates key by key.
