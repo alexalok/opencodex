@@ -10,7 +10,7 @@ import { useAutoReviewSettings, type AutoReviewSettingsController } from "../src
 
 const t: TFn = (key, vars) => interpolate(en[key], vars);
 const globals = ["document", "window", "navigator", "fetch", "IS_REACT_ACT_ENVIRONMENT"] as const;
-let previous: Record<string, unknown>;
+let previous: Record<string, PropertyDescriptor | undefined>;
 let win: Window;
 let host: HTMLElement;
 let root: Root;
@@ -36,7 +36,7 @@ async function paint(apiBase: string) {
 }
 
 beforeEach(() => {
-  previous = Object.fromEntries(globals.map(key => [key, Reflect.get(globalThis, key)]));
+  previous = Object.fromEntries(globals.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   win = new Window({ url: "http://localhost/" });
   Object.defineProperties(globalThis, {
     document: { configurable: true, value: win.document },
@@ -57,7 +57,11 @@ beforeEach(() => {
 
 afterEach(async () => {
   await act(async () => { root.unmount(); });
-  for (const key of globals) Object.defineProperty(globalThis, key, { configurable: true, value: previous[key] });
+  for (const key of globals) {
+    const descriptor = previous[key];
+    if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+    else Reflect.deleteProperty(globalThis, key);
+  }
   await win.happyDOM.close();
 });
 

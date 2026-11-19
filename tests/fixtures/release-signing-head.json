@@ -130,7 +130,7 @@
         "APPLE_TEAM_ID": "${{ secrets.APPLE_TEAM_ID }}",
         "MACOS_SIGN_IDENTITY": "${{ secrets.APPLE_SIGNING_IDENTITY }}"
       },
-      "run": "bunx tauri ${{ runner.os == 'Linux' && '--verbose' || '' }} build --ci --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config \"${{ runner.os == 'Windows' && format('{0}/opencodex-msi.json', runner.temp) || '{}' }}\""
+      "run": "bunx tauri ${{ runner.os == 'Linux' && '--verbose' || '' }} build --ci --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config \"${{ runner.temp }}/opencodex-release.json\""
     },
     {
       "name": "Locate the Windows installer for signing",
@@ -198,7 +198,7 @@
         "TAURI_SIGNING_PRIVATE_KEY": "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}",
         "TAURI_SIGNING_PRIVATE_KEY_PASSWORD": "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}"
       },
-      "run": "bunx tauri build --ci --target ${{ matrix.target }} --bundles appimage"
+      "run": "bunx tauri build --ci --target ${{ matrix.target }} --bundles appimage --config \"${{ runner.temp }}/opencodex-release.json\""
     },
     {
       "name": "Build Linux deb bundle",
@@ -209,7 +209,7 @@
         "TAURI_SIGNING_PRIVATE_KEY": "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}",
         "TAURI_SIGNING_PRIVATE_KEY_PASSWORD": "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}"
       },
-      "run": "bunx tauri build --ci --target ${{ matrix.target }} --bundles deb"
+      "run": "bunx tauri build --ci --target ${{ matrix.target }} --bundles deb --config \"${{ runner.temp }}/opencodex-release.json\""
     },
     {
       "name": "Verify every Mach-O in the bundle carries the release identity",
