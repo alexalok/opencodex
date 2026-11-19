@@ -512,3 +512,27 @@ test("hub catalog downloads project discovered natives without writing the persi
   } finally { resetDiscoveredNativeModelsForTests(); }
 });
 
+
+test("hub quota accepts allowed preflights while keeping GET credentials mandatory", async () => {
+  isolatedCodexHome = installIsolatedCodexHome("ocx-hub-quota-cors-");
+  const origin = "http://localhost:4321";
+  const key = "quota-cors-fixture-key";
+  saveConfig({ ...loadConfig(), port: 0, hostname: "127.0.0.1", runtimeRole: "hub",
+    apiKeys: [{ id: "quota-client", name: "Quota client", key,
+      createdAt: "2026-01-01T00:00:00Z", allowQuotaRead: true }] } as OcxConfig);
+  const { startServer } = await import("../../src/server");
+  const server = startServer(0);
+  const url = new URL("/v1/hub-quota", server.url);
+  try {
+    const headers = { origin, "access-control-request-method": "GET", "access-control-request-headers": "x-opencodex-api-key" };
+    const preflight = await fetch(url, { method: "OPTIONS", headers });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-origin")).toBe(origin);
+    expect(preflight.headers.get("access-control-allow-headers")?.toLowerCase()).toContain("x-opencodex-api-key");
+    expect((await fetch(url, { method: "OPTIONS", headers: { ...headers, origin: "https://untrusted.example.test" } })).status).toBe(403);
+    expect((await fetch(url, { headers: { origin } })).status).toBe(401);
+    const allowed = await fetch(url, { headers: { origin, "x-opencodex-api-key": key } });
+    expect(allowed.status).toBe(200);
+    expect(allowed.headers.get("access-control-allow-origin")).toBe(origin);
+  } finally { await server.stop(true); }
+});

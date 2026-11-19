@@ -47,3 +47,6 @@ Regression coverage lives in `tests/server/hub-quota.test.ts` and
 
 Rejected Anthropic usage probes return unknown quota only while ownership remains current;
 transport failures are not cached, so the next read may recover independently.
+
+Allowed browser origins use the shared OPTIONS preflight before quota dispatch;
+GET still requires the configured API key and explicit quota-read grant.
