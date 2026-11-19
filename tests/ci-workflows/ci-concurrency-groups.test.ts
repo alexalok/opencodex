@@ -104,7 +104,7 @@ test("every trigger this workflow declares is one the cases above cover", () => 
   expect(Object.keys(workflow.on ?? {}).sort()).toEqual(["pull_request", "workflow_dispatch"]);
 });
 
-test("cross-platform workflows have only PR and manual triggers and reject non-dev dispatches", () => {
+test("cross-platform workflows restrict dispatch to dev and explicit fork release CI", () => {
   for (const file of ["ci.yml", "service-lifecycle.yml", "catalog-async-contracts.yml"]) {
     const parsed = Bun.YAML.parse(readFileSync(repoPath(".github", "workflows", file), "utf8")) as {
       on: Record<string, unknown>; jobs: Record<string, { if?: string; needs?: string | string[]; strategy?: {matrix?: {os?: string}}; steps?: Array<{name?: string; run?: string; env?: Record<string, string>}> }>;
@@ -129,6 +129,12 @@ test("cross-platform workflows have only PR and manual triggers and reject non-d
       expect(matrix).toContain("'[\"ubuntu-latest\",\"macos-latest\",\"windows-latest\"]'");
     }
     if (file === "ci.yml") {
+      for (const repository of ["lidge-jun/opencodex", "alexalok/opencodex"]) {
+        for (const ref of ["refs/heads/releases/v2.95.0", "refs/heads/main", "refs/heads/backports/v2.95.0/test", "refs/heads/releases/v2.95.0/extra"]) {
+          const result = Bun.spawnSync(["bash", "-c", run!], {env: {PATH: process.env.PATH ?? "/usr/bin:/bin", EVENT_NAME: "workflow_dispatch", REF: ref, GITHUB_REPOSITORY: repository}});
+          expect(result.exitCode === 0, `${repository} ${ref}`).toBe(repository === "alexalok/opencodex" && ref === "refs/heads/releases/v2.95.0");
+        }
+      }
       for (const id of ["platform-macos", "macos-control", "platform-windows", "widget"]) {
         const needs = parsed.jobs[id]?.needs;
         expect(Array.isArray(needs) ? needs : [needs], id).toContain("changes");
@@ -137,7 +143,9 @@ test("cross-platform workflows have only PR and manual triggers and reject non-d
     if (file === "service-lifecycle.yml") {
       for (const id of ["macos-launchd", "windows-schtasks"]) {
         expect(parsed.jobs[id]?.needs).toBe("validate-source");
-        expect(parsed.jobs[id]?.if).toBe("github.event_name != 'pull_request'");
+        expect(parsed.jobs[id]?.if).toBe(id === "macos-launchd"
+          ? "(github.event_name != 'pull_request' && (vars.OCX_DISABLE_MACOS_CI != 'true' && (github.repository != 'alexalok/opencodex' || github.event_name == 'workflow_dispatch'))) && (github.repository != 'alexalok/opencodex' || github.event_name != 'workflow_dispatch' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania')))"
+          : "(github.event_name != 'pull_request') && (github.repository != 'alexalok/opencodex' || github.event_name != 'workflow_dispatch' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania')))");
       }
     }
   }
@@ -153,4 +161,30 @@ test("scheduled runs never share the push group or cancel earlier runs", () => {
   expect(concurrency(scheduled("1")).group).not.toBe(concurrency(devPush).group);
   expect(concurrency(scheduled("1")).group).not.toBe(concurrency(scheduled("2")).group);
   expect(concurrency(scheduled("1")).cancels).toBe("false");
+});
+
+test("all hosted runner matrices honor macOS disable on manual runs and preserve default coverage", () => {
+  const cases = [
+    ["ci.yml", "setup-action", "os"],
+    ["ci.yml", "remote-helper", "os"],
+    ["catalog-async-contracts.yml", "contracts", "os"],
+    ["codex-queue-helpers.yml", "offline-helpers", "include"],
+  ];
+  for (const [file, job, field] of cases) {
+    const workflow = Bun.YAML.parse(readFileSync(repoPath(".github/workflows", file!), "utf8")) as {
+      jobs: Record<string, { strategy?: { matrix?: Record<string, string> } }>;
+    };
+    const expression = workflow.jobs[job!]?.strategy?.matrix?.[field!];
+    expect(expression, file + ":" + job).toBeDefined();
+    const evaluateMatrix = new Function("github", "vars", "fromJSON", "return (" + expression!.replace(/^\$\{\{\s*|\s*\}\}$/g, "") + ");");
+    for (const repository of ["alexalok/opencodex", "lidge-jun/opencodex"]) {
+      for (const flag of ["", "false", "true", "TRUE"]) {
+        // GitHub Actions compares strings case-insensitively.
+        const entries = evaluateMatrix({ repository, event_name: "workflow_dispatch" }, { OCX_DISABLE_MACOS_CI: flag.toLowerCase() }, JSON.parse) as Array<string | { os: string }>;
+        const runners = entries.map(entry => typeof entry === "string" ? entry : entry.os).sort();
+        expect(runners, file + ":" + flag).toEqual(flag.toLowerCase() === "true"
+          ? ["ubuntu-latest", "windows-latest"] : ["macos-latest", "ubuntu-latest", "windows-latest"]);
+      }
+    }
+  }
 });

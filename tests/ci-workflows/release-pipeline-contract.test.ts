@@ -9,6 +9,7 @@ import { repoPath } from "../helpers/repo-root";
 
 type WorkflowStep = {
   name?: string;
+  id?: string;
   if?: string;
   uses?: string;
   with?: Record<string, unknown>;
@@ -21,7 +22,8 @@ type WorkflowJob = {
   if?: string;
   needs?: string[];
   permissions?: Record<string, string>;
-  strategy?: { matrix?: { include?: Array<{ os?: string }> } };
+  strategy?: { matrix?: string | { include?: Array<{ os?: string }> } };
+  outputs?: Record<string, string>;
   steps?: WorkflowStep[];
 };
 
@@ -108,7 +110,7 @@ describe("release pipeline contract", () => {
     for (const id of ["package-standalone", "package-desktop"]) {
       const job = release.jobs?.[id];
       expect(needsOf(job), id).toEqual(["validate-dispatch", "preflight"]);
-      expect(job?.if, id).toBe("${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev' }}");
+      expect(job?.if, id).toBe("${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev') && (github.repository != 'alexalok/opencodex' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania'))) }}");
       const steps = job?.steps ?? [];
       expect(steps.find(step => step.name === "Checkout")?.with?.ref, id)
         .toBe("${{ needs.validate-dispatch.outputs.source_sha }}");
@@ -288,9 +290,9 @@ describe("release pipeline contract", () => {
     expect(pack?.steps?.find(step => step.name === "Build npm package")?.run).toContain("npm run prepublishOnly");
     expect(pack?.steps?.find(step => step.name === "Build npm package")?.run).toContain("npm pack --ignore-scripts");
     expect(needsOf(verify)).toContain("package-npm");
-    expect(verify?.permissions).toEqual({ contents: "read", actions: "read" });
+    expect(verify?.permissions).toEqual({ contents: "read", actions: "read", "pull-requests": "read" });
     expect(verify?.steps?.find(step => step.name === "Create verified npm receipt")?.run).toContain("sha256");
-    expect(verify?.if).toBeUndefined();
+    expect(verify?.if).toBe("${{ github.repository != 'alexalok/opencodex' }}");
   });
 
   test.skipIf(process.platform === "win32")("trusted npm receipt creation rejects missing or wrong package gitHead", () => {
@@ -517,13 +519,25 @@ describe("release pipeline contract", () => {
     const publish = release.jobs?.publish?.steps?.find(step => step.name === "Recheck source CI and service evidence")?.run;
     expect(verify).toBeDefined();
     expect(publish).toBe(verify);
+    // validate-dispatch answers the same gate before any runner packages (run 42951296881 packaged
+    // and then failed in verify-npm on missing service evidence), with the identical script.
+    const early = release.jobs?.["validate-dispatch"]?.steps?.find(step => step.name === "Require source CI and service evidence before packaging") as
+      { run?: string; env?: Record<string, string> } | undefined;
+    expect(early?.run).toBe(verify);
+    expect(early?.env).toMatchObject({
+      SOURCE_SHA: "${{ steps.source.outputs.source_sha }}",
+      RELEASE_VERSION: "${{ steps.version.outputs.version }}",
+    });
+    const earlySteps = release.jobs?.["validate-dispatch"]?.steps?.map(step => step.name) ?? [];
+    expect(earlySteps.indexOf("Require source CI and service evidence before packaging"))
+      .toBeGreaterThan(earlySteps.indexOf("Resolve release version"));
     const root = mkdtempSync(join(tmpdir(), "ocx-release-evidence-"));
     try {
       const calls = join(root, "calls"), source = "a".repeat(40), baseline = "b".repeat(40);
       const mock = String.raw`
         git() { case "$1" in tag) if [ "$BASELINE" = yes ]; then echo v2.0.0; fi ;; rev-parse) echo "$BASE_SHA" ;; *) return 91 ;; esac; }
         bun() { cat >/dev/null; [ "$BASELINE" = yes ] && echo v2.0.0 || :; }
-        gh() { echo "$DRAFT"; }
+        gh() { printf 'gh %s\n' "$*" >> "$CALLS"; echo "$DRAFT"; return "$GH_STATUS"; }
         node() {
           if [ "$1" = .github/scripts/release-evidence.cjs ]; then
             printf '%s\n' "$*" >> "$CALLS"
@@ -535,21 +549,31 @@ describe("release pipeline contract", () => {
         writeFileSync(calls, "");
         const result = Bun.spawnSync(["bash", "-e", "-c", mock + verify!], { cwd: root, env: {
           PATH: process.env.PATH ?? "/usr/bin:/bin", SOURCE_SHA: source, BASE_SHA: baseline, RELEASE_VERSION: "2.1.0",
-          BASELINE: "yes", DRAFT: "false", REQUIRED: "true", CI_STATUS: "0", SERVICE_STATUS: "0", CALLS: calls, ...extra,
+          BASELINE: "yes", DRAFT: "false", REQUIRED: "true", CI_STATUS: "0", SERVICE_STATUS: "0", GH_STATUS: "0", CALLS: calls, ...extra,
         }, stdout: "pipe", stderr: "pipe" });
-        return { code: result.exitCode, calls: readFileSync(calls, "utf8"), stderr: result.stderr.toString() };
+        return { code: result.exitCode, calls: readFileSync(calls, "utf8"), stderr: result.stderr.toString(), stdout: result.stdout.toString() };
       };
       const required = execute();
       expect(required.code, required.stderr).toBe(0);
       expect(required.calls).toContain(`check ${source}`);
       expect(required.calls).toContain(`service-range ${source} ${baseline}`);
       expect(required.calls).toContain(`service ${source}`);
+      const missing = execute({ SERVICE_STATUS: "1" });
+      expect(missing.code).not.toBe(0);
+      expect(missing.stdout).toContain(`gh workflow run service-lifecycle.yml --ref dev -f source_sha=${source}`);
       const unchanged = execute({ REQUIRED: "false" });
       expect(unchanged.code, unchanged.stderr).toBe(0);
       expect(unchanged.calls).not.toContain(`service ${source}`);
       const initial = execute({ BASELINE: "no" });
       expect(initial.code, initial.stderr).toBe(0);
       expect(initial.calls).toContain(`service-range ${source} --initial`);
+      const forkInitial = execute({ GITHUB_REPOSITORY: "alexalok/opencodex", GH_STATUS: "1" });
+      expect(forkInitial.code, forkInitial.stderr).toBe(0);
+      expect(forkInitial.calls).toContain(`service-range ${source} --initial`);
+      expect(forkInitial.calls).toContain(`service ${source}`);
+      expect(forkInitial.calls).not.toContain("gh release view");
+      expect(execute({ GITHUB_REPOSITORY: "alexalok/opencodex", SERVICE_STATUS: "1" }).code).not.toBe(0);
+      expect(execute({ GITHUB_REPOSITORY: "lidge-jun/opencodex", GH_STATUS: "1" }).code).not.toBe(0);
       for (const bad of [{ CI_STATUS: "1" }, { SERVICE_STATUS: "1" }, { DRAFT: "true" }, { REQUIRED: "null" }]) {
         expect(execute(bad).code, JSON.stringify(bad)).not.toBe(0);
       }
@@ -592,7 +616,10 @@ describe("release pipeline contract", () => {
     for (const jobId of ["package-standalone", "package-desktop"]) {
       const job = release.jobs?.[jobId];
       expect(job, jobId).toBeDefined();
-      const runsOnWindows = job!.strategy?.matrix?.include?.some(entry => entry.os === "windows-latest");
+      const selector = release.jobs?.["validate-dispatch"]?.steps?.find(step => step.id === "platforms");
+      const key = jobId === "package-standalone" ? "STANDALONE_MATRIX" : "DESKTOP_MATRIX";
+      const matrix = JSON.parse(selector!.env![key]!) as { include: Array<{ os: string }> };
+      const runsOnWindows = matrix.include.some(entry => entry.os === "windows-latest");
       expect(runsOnWindows, `${jobId} exercises Windows`).toBe(true);
       for (const step of job!.steps ?? []) {
         // A single command line is shell-neutral; a script block implies shell-specific
@@ -663,7 +690,7 @@ describe("release pipeline contract", () => {
       .toEqual(["package-desktop", "package-standalone", "validate-dispatch"]);
     // Verification is not a publication-mode step: a dry run must prove the same chain
     // a real release relies on, so the job carries no dry-run exemption.
-    expect(verify!.if).toBeUndefined();
+    expect(verify!.if).toBe("${{ (github.repository != 'alexalok/opencodex' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania'))) }}");
     expect(verify!.steps?.some(candidate => candidate.run?.includes("verify-release-assets.ts")))
       .toBe(true);
 
@@ -673,7 +700,7 @@ describe("release pipeline contract", () => {
 
     const attach = release.jobs?.["attach-release"];
     expect(attach).toBeDefined();
-    expect(needsOf(attach).sort()).toEqual(["publish", "validate-dispatch", "verify-release"]);
+    expect(needsOf(attach).sort()).toEqual(["fork-publish", "publish", "validate-dispatch", "verify-release"]);
   });
 
   test("attach uploads only the verified bundle, and only after requiring its receipt", () => {
@@ -885,4 +912,67 @@ describe("service lifecycle trigger coverage", () => {
     expect(serviceChangeRequired(["src/router.ts"])).toBe(false);
     expect(serviceChangeRequired(["docs-site/src/pages/index.astro"])).toBe(false);
   });
+});
+
+test("release platform selection preserves defaults and excludes only macOS when disabled", () => {
+  const release = readWorkflow(".github", "workflows", "release.yml");
+  const validation = release.jobs?.["validate-dispatch"];
+  const selector = validation?.steps?.find(step => step.id === "platforms");
+  expect(selector?.env?.DISABLE_MACOS).toBe("${{ vars.OCX_DISABLE_MACOS_CI }}");
+  const directory = mkdtempSync(join(tmpdir(), "release-platforms-"));
+  try {
+    for (const disabled of ["", "false", "true", "TRUE"]) {
+      const output = join(directory, "output-" + (disabled || "unset"));
+      const result = Bun.spawnSync(["bash", "-e", "-c", selector!.run!], {
+        env: releaseTestEnv({ PATH: process.env.PATH!, ...selector!.env, DISABLE_MACOS: disabled, GITHUB_OUTPUT: output }),
+      });
+      expect(result.exitCode, result.stderr.toString()).toBe(0);
+      const values = Object.fromEntries(readFileSync(output, "utf8").trim().split("\n").map(line => {
+        const equals = line.indexOf("=");
+        return [line.slice(0, equals), JSON.parse(line.slice(equals + 1))];
+      }));
+      for (const kind of ["standalone", "desktop"]) {
+        const key = kind + "_matrix";
+        const original = JSON.parse(selector!.env![key.toUpperCase()]!).include;
+        const expected = disabled.toLowerCase() === "true" ? original.filter((row: { dependency_os: string }) => row.dependency_os !== "darwin") : original;
+        expect(values[key].include).toEqual(expected);
+        expect(values[key].include.length).toBeGreaterThan(0);
+        expect(validation?.outputs?.[key]).toBe("${{ steps.platforms.outputs." + key + " }}");
+        expect(release.jobs?.["package-" + kind]?.strategy?.matrix).toBe("${{ fromJSON(needs.validate-dispatch.outputs." + key + ") }}");
+      }
+    }
+  } finally { removeTreeWithRetry(directory); }
+});
+
+test("fork desktop config disables updater artifacts only without a key on Linux or Windows", () => {
+  const release = readWorkflow(".github", "workflows", "release.yml");
+  const steps = release.jobs?.["package-desktop"]?.steps ?? [];
+  const prepare = steps.find(step => step.name === "Prepare desktop release config");
+  expect(prepare).toBeDefined();
+  expect(prepare!.env?.UPDATER_SIGNING_CONFIGURED).toBe("${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}");
+  const directory = mkdtempSync(join(tmpdir(), "release-updater-config-"));
+  try {
+    for (const repository of ["alexalok/opencodex", "lidge-jun/opencodex"]) {
+      for (const os of ["Linux", "Windows", "macOS"]) {
+        for (const configured of ["true", "false"]) {
+          const windows = { bundle: { windows: { wix: { version: "2.96.5" } } } };
+          writeFileSync(join(directory, "opencodex-msi.json"), JSON.stringify(windows));
+          const node = prepare!.run!.split("node - <<'NODE'\n")[1]!.split("\nNODE")[0]!;
+          const result = Bun.spawnSync(["node", "-e", node], {
+            env: releaseTestEnv({ PATH: process.env.PATH!, RUNNER_TEMP: directory, RUNNER_OS: os,
+              GITHUB_REPOSITORY: repository, UPDATER_SIGNING_CONFIGURED: configured }),
+          });
+          expect(result.exitCode, result.stderr.toString()).toBe(0);
+          const config = JSON.parse(readFileSync(join(directory, "opencodex-release.json"), "utf8"));
+          const unsigned = repository === "alexalok/opencodex" && os !== "macOS" && configured === "false";
+          expect(config.bundle?.createUpdaterArtifacts).toBe(unsigned ? false : undefined);
+          expect(config.bundle?.windows).toEqual(os === "Windows" ? windows.bundle.windows : undefined);
+        }
+      }
+    }
+    for (const name of ["Build desktop bundles", "Build Linux AppImage bundle", "Build Linux deb bundle"]) {
+      expect(steps.find(step => step.name === name)?.run).toContain('--config "${{ runner.temp }}/opencodex-release.json"');
+      expect(steps.findIndex(step => step.name === "Prepare desktop release config")).toBeLessThan(steps.findIndex(step => step.name === name));
+    }
+  } finally { removeTreeWithRetry(directory); }
 });

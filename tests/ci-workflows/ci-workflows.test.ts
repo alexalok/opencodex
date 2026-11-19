@@ -111,12 +111,11 @@ describe("GitHub Actions hardening", () => {
     };
 
     // Job-scoped: a global count still passes if values are swapped between jobs.
-    // Pin ownership explicitly. The Windows leg is sharded like the Linux ones
-    // since 8034cd7c0 — a single leg reached 30m on a green suite and was killed
-    // in cleanup, so each shard now holds the same 15m a Linux shard holds. A
-    // shard that needs longer is wedged, not slow.
+    // Linux needs setup/cleanup margin beyond its complete test batches: the
+    // 15-minute job bound cancelled two shard-3 runs without failing tests.
+    // Individual batch deadlines and all shard membership remain unchanged.
     expect(ci.jobs?.["select-windows-runner"]?.["timeout-minutes"]).toBe(2);
-    expect(ci.jobs?.test?.["timeout-minutes"]).toBe(15);
+    expect(ci.jobs?.test?.["timeout-minutes"]).toBe(20);
     expect(ci.jobs?.gates?.["timeout-minutes"]).toBe(15);
     // 20 with four shards: run 40766068492 cancelled two of three at the
     // 20-minute wall with no failing tests. See the rationale in ci.yml.
@@ -296,7 +295,7 @@ describe("GitHub Actions hardening", () => {
     // Pull requests never run macOS shards; they run only on a manual full
     // dispatch from `dev`. ci-scope-reduction.test.ts evaluates this condition
     // against the events that select the job.
-    expect((ci.jobs?.["platform-macos"] as { if?: string })?.if).toBe("github.event_name != 'pull_request'");
+    expect((ci.jobs?.["platform-macos"] as { if?: string })?.if).toBe("github.event_name != 'pull_request' && (vars.OCX_DISABLE_MACOS_CI != 'true' && (github.repository != 'alexalok/opencodex' || github.event_name == 'workflow_dispatch'))");
 
     // Whole-pool control lives on dispatch so every push does not pay the
     // unsharded macOS critical path. Keep the unsharded full-membership control and the
@@ -312,7 +311,7 @@ describe("GitHub Actions hardening", () => {
     } | undefined;
     expect(macosControlJob?.name).toBe("macos control");
     expect(macosControlJob?.needs).toBe("changes");
-    expect(macosControlJob?.if).toBe("github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && (github.event.inputs.lane == '' || github.event.inputs.lane == 'all' || github.event.inputs.lane == 'macos-control')");
+    expect(macosControlJob?.if).toBe("(vars.OCX_DISABLE_MACOS_CI != 'true' && (github.repository != 'alexalok/opencodex' || github.event_name == 'workflow_dispatch')) && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && github.event.inputs.lane == 'macos-control')");
     expect(macosControlJob?.["runs-on"]).toBe("macos-latest");
     expect(macosControlJob?.strategy).toBeUndefined();
     const macosControlSteps = macosControlJob?.steps ?? [];
@@ -706,6 +705,7 @@ describe("GitHub Actions hardening", () => {
     expect(release.jobs?.["validate-dispatch"]?.permissions).toEqual({
       contents: "read",
       actions: "read",
+      "pull-requests": "read",
     });
     
     // Publication is the irreversible public act, so it waits for the pre-publication
@@ -737,9 +737,9 @@ describe("GitHub Actions hardening", () => {
     const packageJson = JSON.parse(await readText("package.json")) as { scripts?: Record<string, string> };
     expect(packageJson.scripts?.prepublishOnly).toContain("bun run audit:high");
     expect(workflow).toContain("npm run prepublishOnly");
-    expect(count(workflow, 'node .github/scripts/release-evidence.cjs check "$SOURCE_SHA"')).toBe(2);
-    expect(count(workflow, 'node .github/scripts/release-evidence.cjs service-range "$SOURCE_SHA" "$baseline"')).toBe(2);
-    expect(count(workflow, 'node .github/scripts/release-evidence.cjs service "$SOURCE_SHA"')).toBe(2);
+    expect(count(workflow, 'node .github/scripts/release-evidence.cjs check "$SOURCE_SHA"')).toBe(3);
+    expect(count(workflow, 'node .github/scripts/release-evidence.cjs service-range "$SOURCE_SHA" "$baseline"')).toBe(3);
+    expect(count(workflow, 'node .github/scripts/release-evidence.cjs service "$SOURCE_SHA"')).toBe(3);
 
     // Dry-run first by default; tokenless trusted publishing only.
     expect(workflow).toMatch(/dry-run:[\s\S]*?default: true/);
@@ -808,7 +808,13 @@ describe("GitHub Actions hardening", () => {
     const publishBoundaryIndex = workflow.indexOf("- name: Publish verified npm tarball");
     expect(orderingGateIndex).toBeGreaterThan(-1);
     expect(publishBoundaryIndex).toBeGreaterThan(orderingGateIndex);
-    expect(workflow).toContain('git tag --list \'v*\' | bun scripts/version-line.ts assert-releasable "$RELEASE_VERSION"');
+    const orderingGate = workflow.slice(orderingGateIndex).split("\n      - name:")[0]!;
+    expect(orderingGate).toContain('fork_scope=""');
+    expect(orderingGate).toContain('if [ "${GITHUB_REPOSITORY:-}" = alexalok/opencodex ]; then fork_scope="--merged=$SOURCE_SHA"; fi');
+    expect(orderingGate).toContain('git tag ${fork_scope:+"$fork_scope"} --list \'v*\' | bun scripts/version-line.ts assert-releasable "$RELEASE_VERSION"');
+    expect(orderingGate).toContain('refs/tags/v${RELEASE_VERSION}^{commit}');
+    expect(orderingGate).toContain('[ "$existing_tag_sha" != "$SOURCE_SHA" ]');
+    expect(orderingGate.indexOf('refs/tags/v${RELEASE_VERSION}^{commit}')).toBeLessThan(orderingGate.indexOf('fork_scope=""'));
 
     // Release notes are built and coverage-validated before npm publish. The
     // builder owns Git-history/PR coverage; the workflow only wires the validated

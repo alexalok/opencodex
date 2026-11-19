@@ -64,7 +64,9 @@ test("release history checks run with complete git history in gates", () => {
   expect(checkout?.with?.["fetch-depth"]).toBe(0);
 });
 
-type SelectionInputs = { event_name: string; ci: string; native: string; desktop?: string; docker?: string; lane?: string; ref?: string };
+type SelectionInputs = { event_name: string; ci: string; native: string; desktop?: string; docker?: string; lane?: string; ref?: string; repository?: string; disableMacos?: string };
+
+const FORK_REPOSITORY = "alexalok/opencodex";
 
 function term(source: string, inputs: SelectionInputs): string | boolean {
   const text = source.trim();
@@ -77,6 +79,8 @@ function term(source: string, inputs: SelectionInputs): string | boolean {
   const literal = /^'([^']*)'$/.exec(text);
   if (literal) return literal[1]!;
   if (text === "github.event_name") return inputs.event_name;
+  if (text === "vars.OCX_DISABLE_MACOS_CI") return inputs.disableMacos?.toLowerCase() ?? "";
+  if (text === "github.repository") return inputs.repository ?? "lidge-jun/opencodex";
   if (text === "github.event.inputs.lane") return inputs.lane ?? "";
   if (text === "github.ref") return inputs.ref ?? "";
   if (text === "always()") return true;
@@ -136,6 +140,9 @@ const SELECTION_SCENARIOS = [
   { name: "a pull request that touches native paths", inputs: { event_name: "pull_request", ci: "true", native: "true" }, macos: false, desktopShell: true },
   { name: "a pull request that touches no native path", inputs: { event_name: "pull_request", ci: "true", native: "false" }, macos: false, desktopShell: false },
   { name: "an out-of-scope pull request", inputs: { event_name: "pull_request", ci: "false", native: "false" }, macos: false, desktopShell: false },
+  { name: "a push in the alexalok/opencodex fork", inputs: { event_name: "push", ci: "false", native: "false", repository: FORK_REPOSITORY }, macos: false, desktopShell: true },
+  { name: "a schedule in the alexalok/opencodex fork", inputs: { event_name: "schedule", ci: "false", native: "false", repository: FORK_REPOSITORY }, macos: false, desktopShell: true },
+  { name: "a workflow_dispatch in the alexalok/opencodex fork", inputs: { event_name: "workflow_dispatch", ci: "false", native: "false", repository: FORK_REPOSITORY }, macos: true, desktopShell: true },
 ] as const;
 
 /** The matrix output a smoke job consumes, read back out of its own strategy. */
@@ -159,21 +166,23 @@ function emitterStep(outputName: string) {
   return step;
 }
 
-function renderFilterOutputs(text: string, inputs: { ci: string; native: string; event: string; lane: string }): string {
+function renderFilterOutputs(text: string, inputs: { ci: string; native: string; event: string; lane: string; repository?: string; disableMacos?: string }): string {
   // A pull_request emitter sees the plain filter value; the nightly override only matters on schedule.
   const rendered = text.replace(/\$\{\{\s*(?:(?:github\.event_name == 'schedule' && 'true'|\(github\.event_name == 'schedule' \|\| github\.event_name == 'workflow_dispatch' && \(github\.event\.inputs\.lane == '' \|\| github\.event\.inputs\.lane == 'all'\)\) && 'true') \|\| )?steps\.filter\.outputs\.([a-z_-]+)\s*\}\}/g, (match, name: string) => {
     if (inputs.event === "schedule" || (inputs.event === "workflow_dispatch" && ["", "all"].includes(inputs.lane) && match.includes("github.event.inputs.lane"))) return "true";
     if (name === "ci") return inputs.ci;
     if (name === "native") return inputs.native;
     throw new Error(`unsupported filter output in emitter: ${name}`);
-  }).replace(/\$\{\{\s*github\.event_name\s*\}\}/g, inputs.event);
+  }).replace(/\$\{\{\s*github\.event_name\s*\}\}/g, inputs.event)
+    .replace(/\$\{\{\s*vars\.OCX_DISABLE_MACOS_CI != 'true' && \(github\.repository != 'alexalok\/opencodex' \|\| github\.event_name == 'workflow_dispatch'\)\s*\}\}/g,
+      String(inputs.disableMacos?.toLowerCase() !== "true" && ((inputs.repository ?? "lidge-jun/opencodex") !== FORK_REPOSITORY || inputs.event === "workflow_dispatch")));
   const leftover = rendered.indexOf("${{");
   if (leftover >= 0) throw new Error(`unrendered expression in emitter: ${rendered.slice(leftover, leftover + 80)}`);
   return rendered;
 }
 
 /** Run the emitter step the way Actions would, and parse what it wrote to GITHUB_OUTPUT. */
-function emittedOutputs(jobName: string, ci: string, native: string, event = "push", lane = "all"): { exitCode: number; values: Record<string, string> } {
+function emittedOutputs(jobName: string, ci: string, native: string, event = "push", lane = "all", repository?: string, disableMacos = ""): { exitCode: number; values: Record<string, string> } {
   const step = emitterStep(matrixOutputName(jobName));
   const directory = mkdtempSync(join(tmpdir(), "ocx-ci-scope-"));
   try {
@@ -184,8 +193,8 @@ function emittedOutputs(jobName: string, ci: string, native: string, event = "pu
       GITHUB_ENV: join(directory, "github-env"),
       GITHUB_STEP_SUMMARY: join(directory, "step-summary"),
     };
-    for (const [key, value] of Object.entries(step.env ?? {})) env[key] = renderFilterOutputs(String(value), { ci, native, event, lane });
-    const run = renderFilterOutputs(String(step.run ?? ""), { ci, native, event, lane });
+    for (const [key, value] of Object.entries(step.env ?? {})) env[key] = renderFilterOutputs(String(value), { ci, native, event, lane, repository, disableMacos });
+    const run = renderFilterOutputs(String(step.run ?? ""), { ci, native, event, lane, repository, disableMacos });
     const result = Bun.spawnSync(["/bin/bash", "-e", "-o", "pipefail", "-c", run], { env, cwd: directory });
     const values: Record<string, string> = {};
     try {
@@ -215,9 +224,9 @@ function emittedOutputs(jobName: string, ci: string, native: string, event = "pu
   }
 }
 
-function legsFor(jobName: string, ci: "true" | "false", native: "true" | "false", event = "push", lane = "all"): string[] {
+function legsFor(jobName: string, ci: "true" | "false", native: "true" | "false", event = "push", lane = "all", repository?: string, disableMacos = ""): string[] {
   const outputName = matrixOutputName(jobName);
-  const { exitCode, values } = emittedOutputs(jobName, ci, native, event, lane);
+  const { exitCode, values } = emittedOutputs(jobName, ci, native, event, lane, repository, disableMacos);
   expect(exitCode, `${jobName} emitter failed under event=${event} ci=${ci} native=${native}`).toBe(0);
   const raw = values[outputName];
   expect(`${jobName} emitted ${outputName}:${typeof raw === "string" && raw.length > 0}`)
@@ -263,6 +272,7 @@ type GateInputs = {
   docker?: string;
   keyring?: string;
   fast?: string;
+  macosEnabled?: string;
 };
 
 const PR_WITHOUT_NATIVE: GateInputs = {
@@ -289,6 +299,7 @@ function gateEnvironment(inputs: GateInputs, results: Record<string, string>): R
     CHANGES_DOCKER: inputs.docker ?? "false",
     CHANGES_KEYRING: inputs.keyring ?? "false",
     ...(inputs.fast === undefined ? {} : { CHANGES_FAST: inputs.fast }),
+    ...(inputs.macosEnabled === undefined ? {} : { MACOS_ENABLED: inputs.macosEnabled }),
     LANE: inputs.lane,
     // `needs` serializes as an object per job, and the gate reads
     // `.value.result` out of it. Passing a flat name-to-string map makes jq
@@ -444,7 +455,7 @@ describe("the native-gated jobs", () => {
   test("keep macOS off pull requests and leave desktop-shell on the native filter", () => {
     // platform-macos and widget run on macOS runners, which pull requests never pay for.
     for (const name of MACOS_JOBS) {
-      expect(`${name}:${jobs[name]?.if}`).toBe(`${name}:github.event_name != 'pull_request'`);
+      expect(`${name}:${jobs[name]?.if}`).toBe(`${name}:github.event_name != 'pull_request' && (vars.OCX_DISABLE_MACOS_CI != 'true' && (github.repository != 'alexalok/opencodex' || github.event_name == 'workflow_dispatch'))`);
     }
     // desktop-shell runs on ubuntu, so pull requests keep selecting it through the
     // native filter, widened by the package-affecting desktop filter.
@@ -490,7 +501,7 @@ describe("the packaged desktop selection", () => {
 describe("the smoke matrices", () => {
   test.skipIf(cannotRunEmitters)("release evidence names match the full-dispatch workflow graph", () => {
     const { CI_JOBS } = require(repoPath(".github", "scripts", "release-evidence.cjs")) as { CI_JOBS: string[] };
-    const scalar = ["changes", "select-windows-runner", "storage-policy", "api-usage", "gates", "macos-control", "docker-smoke", "docs-site-build", "structure-gate", "widget", "desktop-shell", "ci"];
+    const scalar = ["changes", "select-windows-runner", "storage-policy", "api-usage", "gates", "docker-smoke", "docs-site-build", "structure-gate", "widget", "desktop-shell", "ci"];
     const expected = scalar.map(id => {
       const name = jobs[id]?.name;
       if (!name) throw new Error(`missing job name: ${id}`);
@@ -512,8 +523,8 @@ describe("the smoke matrices", () => {
       const job = jobs[id]!;
       const expression = String(job.strategy?.matrix?.os);
       const arrays = [...expression.matchAll(/'\[([^']+)\]'/g)];
-      if (arrays.length !== 2) throw new Error(`unexpected matrix expression: ${id}`);
-      for (const os of JSON.parse(`[${arrays[1]![1]}]`) as string[]) expected.push(job.name!.replace("${{ matrix.os }}", os));
+      if (![2, 3].includes(arrays.length)) throw new Error(`unexpected matrix expression: ${id}`);
+      for (const os of JSON.parse(`[${arrays.at(-1)![1]}]`) as string[]) expected.push(job.name!.replace("${{ matrix.os }}", os));
     }
     expect([...CI_JOBS].sort()).toEqual(expected.sort());
   });
@@ -548,6 +559,10 @@ describe("the smoke matrices", () => {
       expect(legsFor(jobName, "true", "true", "push").sort()).toEqual(["macos-latest", "ubuntu-latest", "windows-latest"]);
       expect(legsFor(jobName, "false", "false", "workflow_dispatch", "all").sort()).toEqual(["macos-latest", "ubuntu-latest", "windows-latest"]);
       expect(legsFor(jobName, "false", "false", "workflow_dispatch", "release-gates").sort()).toEqual(["ubuntu-latest", "windows-latest"]);
+      // The alexalok/opencodex fork runs hosted macOS jobs only when dispatched by hand.
+      expect(legsFor(jobName, "true", "true", "push", "all", FORK_REPOSITORY).sort()).toEqual(["ubuntu-latest", "windows-latest"]);
+      expect(legsFor(jobName, "true", "true", "schedule", "all", FORK_REPOSITORY).sort()).toEqual(["ubuntu-latest", "windows-latest"]);
+      expect(legsFor(jobName, "true", "true", "workflow_dispatch", "all", FORK_REPOSITORY).sort()).toEqual(["macos-latest", "ubuntu-latest", "windows-latest"]);
     }
   });
 
@@ -574,6 +589,16 @@ describe("the aggregate gate", () => {
   test.skipIf(cannotRunGate)("gates every ordinary job by name, excluding the standalone diagnostic", () => {
     const { gatedJobs } = runGate(PR_WITHOUT_NATIVE, {});
     expect(gatedJobs.sort()).toEqual(Object.keys(jobs).filter(name => !["ci", "windows-native-claim"].includes(name)).sort());
+  });
+
+  test.skipIf(cannotRunGate)("expects the macOS jobs to skip in the alexalok/opencodex fork outside dispatch", () => {
+    const nightly = { ...PR_WITHOUT_NATIVE, eventName: "schedule" };
+    const upstream = runGate(nightly, {}).expectations;
+    const fork = runGate({ ...nightly, macosEnabled: "false" }, {}).expectations;
+    for (const name of [...MACOS_JOBS, "macos-control"]) {
+      expect(`${name}:${upstream[name]}:${fork[name]}`).toBe(`${name}:requested:not-requested`);
+    }
+    expect(fork["desktop-shell"]).toBe("requested");
   });
 
   test.skipIf(cannotRunGate)("treats an unselected native job as not-requested and stays green over skips", () => {
@@ -690,4 +715,28 @@ describe("the aggregate gate", () => {
     expect(runGate(narrow, consistent).bad).toBe("");
     expect(runGate(narrow, { ...consistent, "docker-smoke": "success" }).bad).toContain("docker-smoke");
   });
+});
+
+test.skipIf(cannotRunEmitters || cannotRunGate)("the disable flag overrides manual macOS selection and aggregate expectations", () => {
+  for (const repository of [FORK_REPOSITORY, "lidge-jun/opencodex"]) {
+    for (const disableMacos of ["true", "TRUE"]) {
+      const inputs = { event_name: "workflow_dispatch", ci: "true", native: "true", lane: "all", repository, disableMacos };
+      for (const name of [...MACOS_JOBS, "macos-control"]) expect(evaluate(jobs[name]!.if!, inputs), name).toBe(false);
+      expect(evaluate(jobs["desktop-shell"]!.if!, inputs)).toBe(true);
+      for (const jobName of MATRIX_JOBS) {
+        expect(legsFor(jobName, "true", "true", "workflow_dispatch", "all", repository, disableMacos).sort())
+          .toEqual(["ubuntu-latest", "windows-latest"]);
+      }
+      const step = jobs.ci!.steps!.find(candidate => candidate.env?.MACOS_ENABLED);
+      const macosEnabled = String(evaluate(step!.env!.MACOS_ENABLED!, inputs));
+      const gateInputs = { ...PR_WITHOUT_NATIVE, eventName: "workflow_dispatch", lane: "all", macosEnabled };
+      const { expectations } = runGate(gateInputs, {});
+      for (const name of [...MACOS_JOBS, "macos-control"]) expect(expectations[name], name).toBe("not-requested");
+      const results = Object.fromEntries(Object.entries(expectations).map(([name, expected]) =>
+        [name, expected === "requested" ? "success" : "skipped"]));
+      expect(runGate(gateInputs, results).bad).toBe("");
+      results.gates = "failure";
+      expect(runGate(gateInputs, results).bad).toContain("gates");
+    }
+  }
 });

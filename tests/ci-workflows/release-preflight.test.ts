@@ -10,7 +10,7 @@
  * `scripts/ci/release-preflight.sh` against a real tag set with fake `gh` and `npm`.
  */
 import { describe, expect, test } from "bun:test";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
@@ -216,7 +216,7 @@ describe("the release preflight job", () => {
 
   test("runs after dispatch validation with read-only permissions", () => {
     expect(needsOf(preflight)).toEqual(["validate-dispatch"]);
-    expect(preflight?.permissions).toEqual({ contents: "read" });
+    expect(preflight?.permissions).toEqual({ contents: "read", "pull-requests": "read" });
     expect(preflight?.["runs-on"]).toBe("ubuntu-latest");
   });
 
@@ -464,4 +464,103 @@ describe.skipIf(process.platform === "win32")("scripts/ci/release-preflight.sh, 
     expect(result.output).toContain("already exists on npm");
     expect(result.output).toContain("found 2 blocking problem(s)");
   }, SPAWN_BUDGET_MS);
+});
+
+
+test.skipIf(process.platform === "win32")("final ordering preserves fork ancestry scope and global duplicate checks", () => {
+  const root = mkdtempSync(join(tmpdir(), "ocx-final-ordering-"));
+  const env = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: root, GIT_CONFIG_NOSYSTEM: "1",
+    GIT_AUTHOR_NAME: "fixture", GIT_AUTHOR_EMAIL: "fixture@example.test", GIT_COMMITTER_NAME: "fixture", GIT_COMMITTER_EMAIL: "fixture@example.test" };
+  try {
+    mkdirSync(join(root, "scripts"));
+    copyFileSync(repoPath("scripts/version-line.ts"), join(root, "scripts/version-line.ts"));
+    run(root, env, "git", "init", "-q", "-b", "release");
+    run(root, env, "git", "commit", "-q", "--allow-empty", "-m", "source");
+    const source = run(root, env, "git", "rev-parse", "HEAD");
+    run(root, env, "git", "tag", "v2.90.0");
+    run(root, env, "git", "commit", "-q", "--allow-empty", "-m", "unrelated newer release");
+    run(root, env, "git", "tag", "v2.91.0-preview.20261109.1");
+    const script = release.jobs?.publish?.steps?.find(step => step.name === "Refuse a release the current tag set already outranks")?.run;
+    expect(script).toBeDefined();
+    const execute = (repository = "alexalok/opencodex") => Bun.spawnSync(["bash", "-e", "-c",
+      'git() { if [ "$1" = fetch ]; then return 0; else command git "$@"; fi; }\n' + script], {
+      cwd: root, env: { ...env, GITHUB_REPOSITORY: repository, SOURCE_SHA: source, RELEASE_VERSION: "2.90.1", RESUME: "false" }, stdout: "pipe", stderr: "pipe",
+    });
+    expect(execute().exitCode).toBe(0);
+    expect(execute("lidge-jun/opencodex").exitCode).not.toBe(0);
+    run(root, env, "git", "tag", "v2.90.1");
+    expect(execute().exitCode).not.toBe(0); // Duplicate outside source ancestry still rejects.
+    run(root, env, "git", "tag", "-d", "v2.90.1");
+    run(root, env, "git", "tag", "v2.90.1", source);
+    expect(execute().exitCode).not.toBe(0); // Existing source tag is not a fresh publication.
+    run(root, env, "git", "tag", "-d", "v2.90.1");
+    run(root, env, "git", "tag", "v2.92.0", source);
+    expect(execute().exitCode).not.toBe(0); // Newer ancestor remains an ordering blocker.
+  } finally { removeTreeWithRetry(root); }
+});
+
+
+test("every fork source guard caller has only its exact required token scopes", () => {
+  const expected: Record<string, Record<string, string>> = {
+    "release.yml:validate-dispatch": { contents: "read", actions: "read", "pull-requests": "read" },
+    "release.yml:fork-publish": { contents: "write", actions: "read", "pull-requests": "read" },
+    "release.yml:preflight": { contents: "read", "pull-requests": "read" },
+    "release.yml:verify-npm": { contents: "read", actions: "read", "pull-requests": "read" },
+    "release.yml:publish": { contents: "write", actions: "read", "pull-requests": "read", "id-token": "write" },
+    "service-lifecycle.yml:validate-source": { contents: "read", "pull-requests": "read" },
+  };
+  const callers: string[] = [];
+  // Include indirect source() calls through evidence and history, not just the direct CLI.
+  const guard = /(?:fork-release\.cjs\s+(?:source|history|evidence)|release-evidence\.cjs\s+(?:resolve|check|service)|release-history\.cjs\s+check)(?:\s|$)|release-preflight\.sh/;
+  for (const file of readdirSync(repoPath(".github/workflows")).filter(name => /\.ya?ml$/.test(name))) {
+    const workflow = Bun.YAML.parse(readFileSync(repoPath(".github/workflows", file), "utf8")) as Workflow & { permissions?: Record<string, string> };
+    if (file === "release.yml" || file === "service-lifecycle.yml") {
+      expect(workflow.permissions).toEqual(file === "release.yml" ? {} : { contents: "read" });
+    }
+    for (const [id, job] of Object.entries(workflow.jobs ?? {})) {
+      if (job?.steps?.some(step => guard.test(step.run ?? ""))) {
+        const key = `${file}:${id}`;
+        callers.push(key);
+        expect(expected[key], key).toBeDefined();
+        expect(job.permissions, key).toEqual(expected[key]);
+      } else if (file === "release.yml" || file === "service-lifecycle.yml") {
+        expect(job?.permissions?.["pull-requests"], `${file}:${id}`).toBeUndefined();
+      }
+    }
+  }
+  expect(callers.sort()).toEqual(Object.keys(expected).sort());
+});
+
+
+test("candidate and publication jobs require owner dispatch and rerun independently of prior validation", () => {
+  for (const file of ["release.yml", "service-lifecycle.yml"]) {
+    const workflow = Bun.YAML.parse(readFileSync(repoPath(".github/workflows", file), "utf8")) as Workflow;
+    const jobs = file === "release.yml"
+      ? ["preflight", "package-standalone", "package-desktop", "package-npm", "verify-npm", "verify-release", "attach-release", "publish", "release-outcomes", "fork-publish"]
+      : ["linux-systemd", "macos-launchd", "windows-schtasks"];
+    for (const id of jobs) {
+      const condition = workflow.jobs?.[id]?.if;
+      expect(condition, `${file}:${id}`).toBeDefined();
+      const expression = condition!.replace(/^\$\{\{\s*|\s*\}\}$/g, "").replaceAll("inputs.dry-run", "inputs.dryRun").replaceAll("needs.validate-dispatch", "needs.validateDispatch").replaceAll("needs.verify-release", "needs.verifyRelease").replaceAll("needs.fork-publish", "needs.forkPublish");
+      const evaluate = new Function("github", "inputs", "needs", "always", "vars", `return (${expression});`);
+      const run = (actor: string | undefined, triggering_actor: string | undefined, repository = "alexalok/opencodex", dryRun = false, disableMacos = "") => evaluate(
+        { actor, triggering_actor, repository, event_name: "workflow_dispatch", ref: "refs/heads/dev" },
+        { dryRun }, { validateDispatch: { result: "success" }, verifyRelease: { result: "success" }, forkPublish: { result: "success" }, publish: { result: "success" } }, () => true, { OCX_DISABLE_MACOS_CI: disableMacos.toLowerCase() },
+      );
+      if (file === "service-lifecycle.yml") {
+        for (const disabled of ["true", "TRUE"]) expect(run("alexalok", "alexalok", "alexalok/opencodex", false, disabled), id).toBe(id !== "macos-launchd");
+      }
+      const npmOnly = ["package-npm", "verify-npm", "publish", "release-outcomes"].includes(id);
+      expect(run("alexalok", "alexalok"), `${file}:${id}`).toBe(!npmOnly);
+      expect(run("jack-o-mania", "jack-o-mania"), `${file}:${id}`).toBe(!npmOnly);
+      for (const pair of [["writer", "writer"], ["alexalok", "writer"], ["writer", "alexalok"], [undefined, "alexalok"], ["alexalok", undefined]]) {
+        expect(run(pair[0], pair[1]), `${file}:${id}`).toBe(false);
+      }
+      expect(run("upstream-maintainer", "upstream-maintainer", "lidge-jun/opencodex"), `${file}:${id}`).toBe(id !== "fork-publish");
+      if (id.startsWith("package-")) {
+        expect(run("alexalok", "writer", "alexalok/opencodex", true), id).toBe(false);
+        expect(run("alexalok", "alexalok", "alexalok/opencodex", true), id).toBe(!npmOnly);
+      }
+    }
+  }
 });

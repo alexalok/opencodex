@@ -382,6 +382,11 @@ function createReceiptVerifier({publicKey, now, verifyRun}) {
 async function main(args) {
   const [command, first, second, third, ...extra] = args;
   if (command === 'check') {
+    if (process.env.GITHUB_REPOSITORY === 'alexalok/opencodex') {
+      must(third === 'stable', 'fork releases must be stable');
+      const result = await require('./fork-release.cjs').history(process.env.FORK_RELEASE_BRANCH, first, second);
+      process.stdout.write(JSON.stringify(result) + '\n'); return;
+    }
     must(first && second && third && !extra.length, 'usage: release-history.cjs check <source-sha> <version> <stable|preview>');
     const result = await collectPublicationHistory({candidateSha:first,candidateVersion:second,channel:third,token:process.env.GH_TOKEN});
     process.stdout.write(`${JSON.stringify(result)}\n`); return;
@@ -390,5 +395,5 @@ async function main(args) {
   must(verifyEd25519Receipt(readFileSync(first), readFileSync(second), readFileSync(third)), 'receipt signature invalid');
   process.stdout.write('signature valid; publication evidence has not been checked\n');
 }
-if (require.main === module) main(process.argv.slice(2)).catch(error => { process.stderr.write(`release history: ${error.message}\n`); process.exitCode = 1; });
 module.exports = {compareVersions, reconcileHistory, verifyExactResume, verifyEd25519Receipt, createReceiptVerifier, collectPublicationHistory, verifyLegacyTreeEvidence, LEGACY_MAPPINGS, LEGACY_BASELINE};
+if (require.main === module) main(process.argv.slice(2)).catch(error => { process.stderr.write(`release history: ${error.message}\n`); process.exitCode = 1; });

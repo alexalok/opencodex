@@ -29,7 +29,7 @@ type Job = {
   "runs-on"?: string;
   "timeout-minutes"?: number | string;
   permissions?: Record<string, string>;
-  strategy?: { matrix?: { include?: Array<Record<string, unknown>> } };
+  strategy?: { matrix?: string | { include?: Array<Record<string, unknown>> } };
   steps?: Step[];
 };
 type Workflow = { on?: Record<string, unknown>; permissions?: unknown; env?: Record<string, string>; jobs?: Record<string, Job> };
@@ -235,7 +235,10 @@ describe("release workflow Windows signing gates", () => {
     for (const { id, target, budget } of jobs) {
       const job = release.jobs?.[id];
       expect(job?.permissions, id).toEqual({ actions: "read", contents: "read" });
-      const windows = job?.strategy?.matrix?.include?.find(entry => entry.target === target);
+      const selector = stepsOf(release, "validate-dispatch").find(step => step.id === "platforms");
+      const key = id === "package-standalone" ? "STANDALONE_MATRIX" : "DESKTOP_MATRIX";
+      const matrix = JSON.parse(selector!.env![key]!) as { include: Array<Record<string, unknown>> };
+      const windows = matrix.include.find(entry => entry.target === target);
       // SignPath Foundation accepts signing requests only from GitHub-hosted builds.
       expect(windows?.os, id).toBe("windows-latest");
       expect(String(job?.["timeout-minutes"])).toContain("matrix.target == '" + target + "' && " + budget);

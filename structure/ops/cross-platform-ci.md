@@ -30,8 +30,12 @@ so every pull request scans exactly once and the coverage does not depend on an 
 list. The aggregate derives the same expectation from its `scoped` result.
 
 The macOS suite has four duration-weighted shards (`macos N/4`, `TEST_SHARD=N/4`), each capped
-at 20 minutes. With the control and widget/bundle job, `lane=all` requests at least six macOS jobs
-for five runner slots; a `ci.yml` change also selects the setup-action macOS leg.
+at 20 minutes. With the widget/bundle job, `lane=all` requests at least five macOS jobs for five
+runner slots; a `ci.yml` change also selects the setup-action macOS leg. The unsharded `macos
+control` runs only on a `lane=macos-control` dispatch: on `lane=all` it repeated the suite the
+four shards had already passed on the same commit, on one worker, for 50 to 60 minutes, and
+every release waited for it. Release evidence (`.github/scripts/release-evidence.cjs`) therefore
+does not require it.
 Widget/bundle waits for `gates`, so the requests need not overlap and a queue is possible rather
 than guaranteed. The fourth shard adds setup overhead while dividing the same suite.
 
@@ -136,3 +140,9 @@ Review of the legacy history mapping, security review, actual dry-run evidence a
 remain open; a CI run alone does not authorize publication.
 
 The shared Responses path follows the [bounded multipart recovery contract](../subagents.md#multipart-encrypted-task-recovery); credential admission and retry policy remain unchanged.
+
+Linux jobs always use GitHub-hosted Ubuntu runners. The Windows selector always returns `windows-latest`; no repository variable can select a persistent pool. Runner access outside these mutable workflow files remains an administrator responsibility.
+
+The gates job retrieves missing legacy release test objects from the canonical public upstream by three fixed commit SHAs before validating historical trees. Fetches create no branch or tag refs; unavailable or invalid evidence fails the job.
+
+Fork release qualification uses GitHub-hosted Linux and Windows runners, plus macOS only when `OCX_DISABLE_MACOS_CI` is not true. The flag excludes macOS jobs and matrix legs even on manual dispatch; the CI aggregate enforces every remaining requested job. The checked-in workflow has no selectable persistent runner pool; runner access outside workflow code remains an administrator responsibility.
