@@ -143,7 +143,7 @@ export function createResetCreditWhamClient(config: OcxConfig, accountId: string
       if (!parsed.ok) throw new Error("invalid upstream reset-credit response");
       const credits = safeResetCreditsDto(parsed.value);
       noteResetCreditInspect(accountId, credits, Date.now(), auth.mainProof?.writer.identityGeneration);
-      return { credits: credits.credits };
+      return credits;
     }),
     consume: redeemRequestId => run(async auth => {
       const resp = await fetch("https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume", {

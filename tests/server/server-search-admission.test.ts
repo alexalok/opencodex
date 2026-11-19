@@ -212,7 +212,10 @@ test.each(["missing", "paused", "direct"])("%s stored auth cannot leak a Hub Bea
   if (state === "paused") setCodexAccountPaused(config, "pool-a", true);
   if (state === "direct") config.providers.openai!.codexAccountMode = "direct";
   start(config);
-  expect((await search({ authorization: `Bearer ${HUB_KEYS[0]}` })).status).toBe(401);
+  const refused = await search({ authorization: `Bearer ${HUB_KEYS[0]}` });
+  // This release predates Pool-only routing: a paused Pool may reach the fenced native-main fallback.
+  expect(refused.status).toBe(state === "paused" ? 503 : 401);
+  if (state === "paused") expect(await refused.json()).toMatchObject({ error: { code: "server_is_overloaded" } });
   expect(captured).toEqual([]);
 });
 
