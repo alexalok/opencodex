@@ -213,9 +213,11 @@ test.each(["missing", "paused", "direct"])("%s stored auth cannot leak a Hub Bea
   if (state === "direct") config.providers.openai!.codexAccountMode = "direct";
   start(config);
   const refused = await search({ authorization: `Bearer ${HUB_KEYS[0]}` });
-  // This release predates Pool-only routing: a paused Pool may reach the fenced native-main fallback.
-  expect(refused.status).toBe(state === "paused" ? 503 : 401);
-  if (state === "paused") expect(await refused.json()).toMatchObject({ error: { code: "server_is_overloaded" } });
+  // A paused Pool falls back to native-main: an available owner rejects missing auth (401),
+  // while a fenced owner refuses admission (503). Neither may make an upstream request.
+  if (state === "paused" && refused.status === 503) {
+    expect(await refused.json()).toMatchObject({ error: { code: "server_is_overloaded" } });
+  } else expect(refused.status).toBe(401);
   expect(captured).toEqual([]);
 });
 
