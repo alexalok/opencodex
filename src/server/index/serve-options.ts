@@ -223,8 +223,6 @@ import { runTurnStateCallerScope } from "../turn-state-handles";
 
 export type ServerIngress = "public" | "unauthenticated-loopback" | "hub-management" | "claude-intercept" | "hub-link" | "local-control";
 
-
-
 /**
  * Routes the Claude intercept TLS listener may reach. Everything else on that socket is relayed
  * to the real upstream by the listener itself, so a request that lands here with another path

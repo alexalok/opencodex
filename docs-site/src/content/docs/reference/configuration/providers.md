@@ -662,8 +662,7 @@ and the Models page reports it so you can retry with `ocx sync`. CLI users can r
 `ocx models auto-review status` or change it with
 `ocx models auto-review set <model|-> [--enabled <on|off>]`; use `-` to clear the model. CLI output
 recommends `ocx sync` when a refresh can be retried. If a refresh fails, the setting remains saved
-and the command exits 1. Resolve the failure before syncing. The [provider
-guide](/guides/providers/#approval-reviewer-per-provider) has the operator workflow and a worked example.
+and the command exits 1. Resolve the failure before syncing; see the [provider guide](/guides/providers/#approval-reviewer-per-provider) for a worked example.
 
 The selector includes visible native GPT models as well as routed provider models. **Reviewer reasoning** optionally sets `autoReviewOverride.reasoningEffort` while the override is enabled. **Use requested effort** (the default) leaves Codex's choice unchanged; selecting a level rewrites only approval-review requests. The effort works even when the model is blank and Codex's existing reviewer selection remains in effect. Disabling the override stops both overrides and retains the saved choices. Normal chats, code reviews (`/review`), and other subagents keep their requested effort. Destination model limits and configured effort caps still apply. Recognition uses Codex's explicit `guardian` subagent label or `guardian_review` thread source, never the model name or prompt text. For WebSockets it uses each frame's metadata, not the connection headers. Missing, malformed, or conflicting markers leave the effort unchanged.
 
