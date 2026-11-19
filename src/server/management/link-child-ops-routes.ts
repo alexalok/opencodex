@@ -1,3 +1,5 @@
+import type { OcxConfig } from "../../types";
+import { catalogProjectionKey, projectHubDiscoveries } from "../catalog-download";
 import { DEFAULT_IDLE_AFTER_MS, isLinkIdle } from "../../link/child-activity";
 import { createCatalogRevisionMonitor, type CatalogRevisionMonitor } from "../../link/child-catalog-freshness";
 import { observeChild } from "../../link/child-observe";
@@ -20,17 +22,17 @@ const MAX_LINK_IDS = 64;
 const JOB_PATH = /^\/api\/link\/children\/jobs\/([^/]+)$/;
 const NO_STORE = { "cache-control": "no-store" };
 
-let revisionMonitor: CatalogRevisionMonitor | undefined;
-
 /**
- * The production Home catalog revision: the exact bytes `/v1/catalog` serves, hashed like its etag, with the
+ * The production Home catalog revision: the same hub projection as `/v1/catalog`, hashed like its etag, with the
  * revision persisted as `homeCatalog` in child-observations.json. Created lazily on the first `?children=1` read.
  */
-export function catalogRevisionForRoutes(): CatalogRevisionMonitor {
-  return revisionMonitor ??= createCatalogRevisionMonitor({
+export function catalogRevisionForRoutes(config: OcxConfig): CatalogRevisionMonitor {
+  return createCatalogRevisionMonitor({
     catalogPath: () => readCodexCatalogPath(),
+    projectionKey: () => catalogProjectionKey(config),
     read: path => {
-      const catalog = readCatalog(path);
+      const persisted = readCatalog(path);
+      const catalog = config.runtimeRole === "hub" ? projectHubDiscoveries(persisted, config) : persisted;
       return catalog ? JSON.stringify(catalog) : null;
     },
     load: () => readChildObservations().homeCatalog,
@@ -82,7 +84,7 @@ export function childOpsEnvFor(ctx: ManagementContext, state: LinkRouteState, id
     },
     // Revision 4: wp2's monitor on LinkRouteState.catalogRevision (catalogEtag hashing); null when the catalog cannot be read.
     catalogEtag: () => {
-      try { return (state.catalogRevision ??= catalogRevisionForRoutes()).current()?.etag ?? null; } catch { return null; }
+      try { return (state.catalogRevision ??= catalogRevisionForRoutes(ctx.config)).current()?.etag ?? null; } catch { return null; }
     },
   };
 }
@@ -124,11 +126,11 @@ function refusal(code: SubmitRefusal): Response {
 }
 
 /** `?children=1` on a Home: attach every row's `child` block. Never fails on the cache or the revision save. */
-export function attachLinkChildOpsForState(dto: LinkStatusDto, state: LinkRouteState, store: LinkStore, now: number = Date.now()): LinkStatusDto {
+export function attachLinkChildOpsForState(dto: LinkStatusDto, state: LinkRouteState, store: LinkStore, config: OcxConfig, now: number = Date.now()): LinkStatusDto {
   // A pull inside the recorder's write window would otherwise reach the file only at the next pull or at shutdown.
   // Best effort: a lock failure is logged by the recorder and retried later; the status read never fails on it.
   state.listener.flushCatalogPulls?.();
-  const revision = (state.catalogRevision ??= catalogRevisionForRoutes()).current();
+  const revision = (state.catalogRevision ??= catalogRevisionForRoutes(config)).current();
   const observations = readChildObservations();
   const known = new Set(store.links.map(link => link.id));
   return attachLinkChildOps(dto, {
