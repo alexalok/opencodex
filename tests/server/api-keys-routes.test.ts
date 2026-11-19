@@ -1099,7 +1099,7 @@ test("hub quota route requires explicit configured grant even on loopback", asyn
     expect((await read()).status).toBe(401);
     expect((await read(ADMIN_TOKEN)).status).toBe(401);
     expect((await read("fixture-quota-key", "POST")).status).toBe(405);
-    expect((await read("fixture-quota-key", "OPTIONS")).status).toBe(405);
+    expect((await read(undefined, "OPTIONS")).status).toBe(204);
     expect((await read("fixture-quota-key", "GET", "?refresh=1")).status).toBe(400);
     const response = await read("fixture-quota-key");
     expect(response.status).toBe(200);
