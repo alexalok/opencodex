@@ -3,6 +3,8 @@ title: 기여하기
 description: opencodex 개발 환경, 구조, 컨벤션, 프로바이더와 어댑터 추가 방법.
 ---
 
+For `alexalok/opencodex`, follow the [fork workflow](https://github.com/alexalok/opencodex/blob/dev/AGENTS.md#git-workflow-for-alexalokopencodex): PRs into current `dev`, or versioned backports into `releases/vX.Y.Z`. Do not clone or create `main`. The upstream contribution and promotion guidance below describes `lidge-jun/opencodex`.
+
 ## 설정
 
 ```bash

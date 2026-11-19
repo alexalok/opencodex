@@ -1,4 +1,4 @@
-# Fork release 2.100.11 on upstream v2.100.2
+# Fork release 2.100.14 on upstream v2.100.2
 
 ## Base selection
 
@@ -14,7 +14,7 @@ Sources: https://github.com/lidge-jun/opencodex/releases/tag/v2.100.2 and the
 
 Release target: `releases/v2.100.2`. Backport branch:
 `backports/v2.100.2/hub-native-discovery`. Four package/desktop version mirrors
-are 2.100.11: one patch increment for each of the nine feature groups below.
+are 2.100.14: one patch increment for each of the twelve feature groups below.
 
 ## Individually justified backports
 
@@ -29,6 +29,9 @@ are 2.100.11: one patch increment for each of the nine feature groups below.
 | 2.100.9 | Preserve a matching link service token when service environment is stale | #36, 847102055c |
 | 2.100.10 | Refresh held key-provider quota after routed traffic | #39, 4a9ef41351 |
 | 2.100.11 | Explicit read-only Hub quota grants with ownership checks, private deduplication, and isolated transport failures | 60a506213c, 1f49c43694, 3955a088ad, 8fb10cc25d, 8f57ad56dd |
+| 2.100.12 | Require explicit candidate-to-benchmark identity mappings for role assignment | 8dcf180a39 |
+| 2.100.13 | Stable unknown-budget row keys in the quota GUI | d34590dff7 |
+| 2.100.14 | Preserve telemetry privacy, reconnect state, and exclusive profile credential publication | 5f30569ea2, 717229eba3, 62e3593936, 2ab5985e15, 9d97126ea7, 93d304deb7 |
 
 Fable 5.2 client identity and headless Pool account listing already exist in the
 selected upstream base; they are not duplicated. Remembered browser sessions
@@ -36,7 +39,9 @@ also supersede the older raw-admin-token persistence patch.
 
 The release retains reviewed fork qualification/publication tooling from fork
 head e111ae1f42369ad21c48f4791471f39f61d6da69. Its existing evidence fingerprints
-are unchanged. This is required to preserve GitHub-only assets, authorized
+are unchanged. The required tooling includes newer upstream CI-only changes #8521
+(macOS control lane), #8523 (service evidence before packaging), and policy-doc
+clarifications from #8426; these do not upgrade the runtime base. This is required to preserve GitHub-only assets, authorized
 actors, exact-source qualification, disposable hosted runners, and the
 OCX_DISABLE_MACOS_CI override. The prior native-startup test stabilization from
 #30 is retained. These tooling/test adaptations are not extra runtime features.
