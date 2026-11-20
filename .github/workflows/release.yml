@@ -4,6 +4,10 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
+      release-branch:
+        description: "Fork only: explicit merged releases/vX.Y.Z source branch"
+        required: false
+        type: string
       version:
         description: "Optional expected derived version; required original version when resuming"
         required: false
@@ -31,6 +35,10 @@ on:
         required: false
         type: string
 
+env:
+  FORK_RELEASE_BRANCH: ${{ inputs.release-branch }}
+  OCX_DISABLE_MACOS_CI: ${{ vars.OCX_DISABLE_MACOS_CI }}
+
 permissions: {}
 
 concurrency:
@@ -41,12 +49,15 @@ jobs:
   validate-dispatch:
     runs-on: ubuntu-latest
     permissions:
+      pull-requests: read
       contents: read
       actions: read
     outputs:
       source_sha: ${{ steps.source.outputs.source_sha }}
       workflow_sha: ${{ steps.source.outputs.workflow_sha }}
       version: ${{ steps.version.outputs.version }}
+      standalone_matrix: ${{ steps.platforms.outputs.standalone_matrix }}
+      desktop_matrix: ${{ steps.platforms.outputs.desktop_matrix }}
     steps:
       - name: Checkout trusted workflow revision
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -74,6 +85,10 @@ jobs:
             ref: process.env.GITHUB_REF, sourceSha: process.env.REQUESTED_SHA, workflowSha: process.env.GITHUB_SHA });
           if (failure) throw new Error(failure);
           NODE
+          if [ "${GITHUB_REPOSITORY:-}" = alexalok/opencodex ]; then
+            test "$RESUME" != true || { echo "::error::Fork resume requires a separately reviewed fork receipt policy"; exit 1; }
+            node .github/scripts/fork-release.cjs source "$REQUESTED_SHA"
+          fi
           if [ "$RESUME" = true ]; then
             if [ -z "$REQUESTED_SHA" ] || [ -z "$REQUESTED_VERSION" ] || [ "$DRY_RUN" != false ]; then
               echo '::error::Resume requires the original source SHA and version and cannot be a dry run.'; exit 1
@@ -113,6 +128,13 @@ jobs:
         run: |
           set -euo pipefail
           bun scripts/release-version-sources.ts check --root candidate
+          if [ "${GITHUB_REPOSITORY:-}" = alexalok/opencodex ]; then
+            test "$CHANNEL" = latest
+            version="$(node -p 'require("./candidate/package.json").version')"
+            test -n "$EXPECTED_VERSION" && test "$EXPECTED_VERSION" = "$version"
+            printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ "$RESUME" = true ]; then
             # JavaScript template literals are evaluated by Bun, not the shell.
             # shellcheck disable=SC2016
@@ -154,6 +176,61 @@ jobs:
             appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\n`);
           '
 
+      - name: Select enabled release platforms
+        id: platforms
+        env:
+          DISABLE_MACOS: ${{ vars.OCX_DISABLE_MACOS_CI }}
+          STANDALONE_MATRIX: '{"include":[{"os":"ubuntu-latest","target":"bun-linux-x64","dependency_os":"linux","dependency_cpu":"x64","smoke":true},{"os":"macos-latest","target":"bun-darwin-arm64","dependency_os":"darwin","dependency_cpu":"arm64","smoke":true},{"os":"macos-latest","target":"bun-darwin-x64","dependency_os":"darwin","dependency_cpu":"x64","smoke":false},{"os":"windows-latest","target":"bun-windows-x64","dependency_os":"win32","dependency_cpu":"x64","smoke":true},{"os":"ubuntu-latest","target":"bun-linux-arm64","dependency_os":"linux","dependency_cpu":"arm64","smoke":false}]}'
+          DESKTOP_MATRIX: '{"include":[{"os":"macos-latest","target":"universal-apple-darwin","dependency_os":"darwin","dependency_cpu":"*","bundles":"app,dmg","sidecar-targets":"macos","artifact-suffixes":"macos.dmg,macos.app.tar.gz"},{"os":"windows-latest","target":"x86_64-pc-windows-msvc","dependency_os":"win32","dependency_cpu":"x64","bundles":"msi","sidecar-targets":"x86_64-pc-windows-msvc","artifact-suffixes":"windows-x64.msi"},{"os":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","dependency_os":"linux","dependency_cpu":"x64","bundles":"appimage,deb","sidecar-targets":"x86_64-unknown-linux-gnu","artifact-suffixes":"linux-x86_64.AppImage,linux-amd64.deb"}]}'
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const disabled = (process.env.DISABLE_MACOS || '').toLowerCase() === 'true';
+          for (const [key, variable] of [['standalone_matrix', 'STANDALONE_MATRIX'], ['desktop_matrix', 'DESKTOP_MATRIX']]) {
+            const matrix = JSON.parse(process.env[variable]);
+            matrix.include = matrix.include.filter(row => !disabled || row.dependency_os !== 'darwin');
+            if (!matrix.include.length) throw Error('empty release platform matrix');
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `${key}=${JSON.stringify(matrix)}\n`);
+          }
+          NODE
+      # The same evidence gate verify-npm and publish repeat, answered before any runner packages.
+      # Run 42951296881 resolved its CI evidence here, packaged for minutes and only then failed in
+      # verify-npm because no service-lifecycle run existed for the source. Packaging cannot create
+      # that evidence, so a release that lacks it now fails in seconds with the dispatch command.
+      - name: Require source CI and service evidence before packaging
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          node .github/scripts/release-evidence.cjs check "$SOURCE_SHA"
+          baseline_tag="$(git tag --merged "$SOURCE_SHA" --list 'v[0-9]*' | bun -e '
+            import { parseVersion, compareVersions } from "./scripts/version-line.ts";
+            const tags = (await Bun.stdin.text()).trim().split("\n").filter(Boolean);
+            const versions = tags.map(tag => ({ tag, version: tag.slice(1) }));
+            if (versions.some(item => !parseVersion(item.version))) throw new Error("invalid release tag");
+            const eligible = versions.filter(item => compareVersions(item.version, process.env.RELEASE_VERSION) < 0);
+            eligible.sort((a, b) => compareVersions(a.version, b.version));
+            console.log(eligible.at(-1)?.tag ?? "");
+          ')"
+          baseline=--initial
+          # Fork tags may be inherited upstream publications absent from this repository.
+          # Check the complete candidate tree instead; service evidence remains mandatory.
+          if [ -n "$baseline_tag" ] && [ "${GITHUB_REPOSITORY:-}" != alexalok/opencodex ]; then
+            draft="$(gh release view "$baseline_tag" --json isDraft --jq .isDraft)"
+            test "$draft" = false || { echo '::error::Service baseline is not a published release.'; exit 1; }
+            baseline="$(git rev-parse "refs/tags/${baseline_tag}^{commit}")"
+          fi
+          range="$(node .github/scripts/release-evidence.cjs service-range "$SOURCE_SHA" "$baseline")"
+          required="$(RANGE="$range" node -e 'const x = JSON.parse(process.env.RANGE); if (typeof x.required !== "boolean") throw Error("invalid service range"); process.stdout.write(String(x.required));')"
+          if [ "$required" = true ]; then
+            node .github/scripts/release-evidence.cjs service "$SOURCE_SHA" || {
+              echo "::error::Dispatch service-lifecycle.yml from dev for source ${SOURCE_SHA} and wait for all platforms: gh workflow run service-lifecycle.yml --ref dev -f source_sha=${SOURCE_SHA}"; exit 1;
+            }
+          fi
+
+
   # Every publication precondition the dispatch can already decide, checked before any runner
   # starts packaging: channel and dist-tag, every version source, the tag, the GitHub release,
   # npm and the global tag ordering (scripts/ci/release-preflight.sh).
@@ -169,11 +246,13 @@ jobs:
   # while a run packages (a hand-pushed tag, a first local publish), so `publish` repeats every
   # one of these checks immediately before `npm publish`.
   preflight:
+    if: ${{ (github.repository != 'alexalok/opencodex' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania'))) }}
     name: release preflight
     needs: validate-dispatch
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      pull-requests: read
       contents: read
     env:
       SOURCE_SHA: ${{ needs.validate-dispatch.outputs.source_sha }}
@@ -213,36 +292,10 @@ jobs:
 
   package-standalone:
     needs: [validate-dispatch, preflight]
-    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev' }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev') && (github.repository != 'alexalok/opencodex' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania'))) }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: bun-linux-x64
-            dependency_os: linux
-            dependency_cpu: x64
-            smoke: true
-          - os: macos-latest
-            target: bun-darwin-arm64
-            dependency_os: darwin
-            dependency_cpu: arm64
-            smoke: true
-          - os: macos-latest
-            target: bun-darwin-x64
-            dependency_os: darwin
-            dependency_cpu: x64
-            smoke: false
-          - os: windows-latest
-            target: bun-windows-x64
-            dependency_os: win32
-            dependency_cpu: x64
-            smoke: true
-          - os: ubuntu-latest
-            target: bun-linux-arm64
-            dependency_os: linux
-            dependency_cpu: arm64
-            smoke: false
+      matrix: ${{ fromJSON(needs.validate-dispatch.outputs.standalone_matrix) }}
     runs-on: ${{ matrix.os }}
     # The Windows leg can wait up to an hour for a release-signing approval in SignPath.
     timeout-minutes: ${{ matrix.target == 'bun-windows-x64' && 90 || 25 }}
@@ -428,32 +481,10 @@ jobs:
 
   package-desktop:
     needs: [validate-dispatch, preflight]
-    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev' }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev') && (github.repository != 'alexalok/opencodex' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania'))) }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: macos-latest
-            target: universal-apple-darwin
-            dependency_os: darwin
-            dependency_cpu: "*"
-            bundles: app,dmg
-            sidecar-targets: macos
-            artifact-suffixes: macos.dmg,macos.app.tar.gz
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            dependency_os: win32
-            dependency_cpu: x64
-            bundles: msi
-            sidecar-targets: x86_64-pc-windows-msvc
-            artifact-suffixes: windows-x64.msi
-          - os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            dependency_os: linux
-            dependency_cpu: x64
-            bundles: appimage,deb
-            sidecar-targets: x86_64-unknown-linux-gnu
-            artifact-suffixes: linux-x86_64.AppImage,linux-amd64.deb
+      matrix: ${{ fromJSON(needs.validate-dispatch.outputs.desktop_matrix) }}
     runs-on: ${{ matrix.os }}
     # The Windows leg can wait up to an hour for a release-signing approval in SignPath.
     timeout-minutes: ${{ matrix.target == 'x86_64-pc-windows-msvc' && 105 || 45 }}
@@ -692,6 +723,24 @@ jobs:
           RELEASE_VERSION: ${{ needs.validate-dispatch.outputs.version }}
         run: bun desktop/scripts/windows-installer-config.ts "$RELEASE_VERSION" "$RUNNER_TEMP/opencodex-msi.json"
 
+      - name: Prepare desktop release config
+        shell: bash
+        env:
+          UPDATER_SIGNING_CONFIGURED: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs'), path = require('node:path');
+          const root = process.env.RUNNER_TEMP;
+          const config = process.env.RUNNER_OS === 'Windows'
+            ? JSON.parse(fs.readFileSync(path.join(root, 'opencodex-msi.json'), 'utf8')) : {};
+          if (process.env.GITHUB_REPOSITORY === 'alexalok/opencodex'
+              && process.env.RUNNER_OS !== 'macOS'
+              && process.env.UPDATER_SIGNING_CONFIGURED === 'false') {
+            config.bundle = { ...config.bundle, createUpdaterArtifacts: false };
+          }
+          fs.writeFileSync(path.join(root, 'opencodex-release.json'), JSON.stringify(config), { mode: 0o600 });
+          NODE
+
       - name: Preserve the compiled Linux sidecar
         if: runner.os == 'Linux'
         run: |
@@ -699,8 +748,8 @@ jobs:
           echo "PATCHELF=$GITHUB_WORKSPACE/desktop/scripts/appimage-patchelf.py" >> "$GITHUB_ENV"
 
       # Release signing is intentionally secret-gated. Developer ID, notarization,
-      # and updater signatures require maintainer-owned credentials; builds without
-      # those secrets remain useful for local validation but are not release assets.
+      # and updater signatures require maintainer-owned credentials. The fork permits
+      # Linux/Windows installers without updater signatures when no key is configured.
       - name: Build desktop bundles
         if: runner.os != 'Linux'
         working-directory: desktop
@@ -716,7 +765,7 @@ jobs:
           MACOS_SIGN_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         # linuxdeploy suppresses its own stderr at the default verbosity. Keep
         # diagnostics on the first attempt; Apple signing commands stay non-verbose.
-        run: bunx tauri ${{ runner.os == 'Linux' && '--verbose' || '' }} build --ci --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config "${{ runner.os == 'Windows' && format('{0}/opencodex-msi.json', runner.temp) || '{}' }}"
+        run: bunx tauri ${{ runner.os == 'Linux' && '--verbose' || '' }} build --ci --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config "${{ runner.temp }}/opencodex-release.json"
 
       # The Windows installer goes to SignPath after the build and before the asset rename, so the
       # renamed asset, its checksum and its updater signature all describe the signed MSI. The
@@ -811,7 +860,7 @@ jobs:
           CARGO_TARGET_DIR: ${{ runner.temp }}/opencodex-appimage-target
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: bunx tauri build --ci --target ${{ matrix.target }} --bundles appimage
+        run: bunx tauri build --ci --target ${{ matrix.target }} --bundles appimage --config "${{ runner.temp }}/opencodex-release.json"
 
       - name: Build Linux deb bundle
         if: runner.os == 'Linux'
@@ -820,7 +869,7 @@ jobs:
           CARGO_TARGET_DIR: ${{ runner.temp }}/opencodex-deb-target
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: bunx tauri build --ci --target ${{ matrix.target }} --bundles deb
+        run: bunx tauri build --ci --target ${{ matrix.target }} --bundles deb --config "${{ runner.temp }}/opencodex-release.json"
 
       - name: Stage isolated Linux release bundles
         if: runner.os == 'Linux'
@@ -928,6 +977,7 @@ jobs:
 
   # Candidate code and npm lifecycle scripts run only in this read-only job.
   package-npm:
+    if: ${{ github.repository != 'alexalok/opencodex' }}
     needs: [validate-dispatch, preflight]
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -1006,9 +1056,11 @@ jobs:
 
   # A fresh runner computes the receipt; candidate code cannot execute in this job.
   verify-npm:
+    if: ${{ github.repository != 'alexalok/opencodex' }}
     needs: [validate-dispatch, package-npm]
     runs-on: ubuntu-latest
     permissions:
+      pull-requests: read
       contents: read
       actions: read
     outputs:
@@ -1060,7 +1112,9 @@ jobs:
             console.log(eligible.at(-1)?.tag ?? "");
           ')"
           baseline=--initial
-          if [ -n "$baseline_tag" ]; then
+          # Fork tags may be inherited upstream publications absent from this repository.
+          # Check the complete candidate tree instead; service evidence remains mandatory.
+          if [ -n "$baseline_tag" ] && [ "${GITHUB_REPOSITORY:-}" != alexalok/opencodex ]; then
             draft="$(gh release view "$baseline_tag" --json isDraft --jq .isDraft)"
             test "$draft" = false || { echo '::error::Service baseline is not a published release.'; exit 1; }
             baseline="$(git rev-parse "refs/tags/${baseline_tag}^{commit}")"
@@ -1069,7 +1123,7 @@ jobs:
           required="$(RANGE="$range" node -e 'const x = JSON.parse(process.env.RANGE); if (typeof x.required !== "boolean") throw Error("invalid service range"); process.stdout.write(String(x.required));')"
           if [ "$required" = true ]; then
             node .github/scripts/release-evidence.cjs service "$SOURCE_SHA" || {
-              echo "::error::Dispatch service-lifecycle.yml from dev for source ${SOURCE_SHA} and wait for all platforms."; exit 1;
+              echo "::error::Dispatch service-lifecycle.yml from dev for source ${SOURCE_SHA} and wait for all platforms: gh workflow run service-lifecycle.yml --ref dev -f source_sha=${SOURCE_SHA}"; exit 1;
             }
           fi
 
@@ -1153,6 +1207,7 @@ jobs:
   # verifying after the fact. Runs on dry-run too: a dry run must prove the same
   # chain a real release will rely on.
   verify-release:
+    if: ${{ (github.repository != 'alexalok/opencodex' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania'))) }}
     runs-on: ubuntu-latest
     needs: [validate-dispatch, package-standalone, package-desktop]
     timeout-minutes: 10
@@ -1203,6 +1258,7 @@ jobs:
           if [ "$UPDATER_SIGNING_CONFIGURED" = "true" ]; then
             args+=(--manifest-out dist/release/latest.json --require-signatures)
           fi
+          if [ "${OCX_DISABLE_MACOS_CI,,}" = true ]; then args+=(--exclude-macos); fi
           bun desktop/scripts/verify-release-assets.ts "${args[@]}"
 
       - name: Bind verified asset digests
@@ -1248,10 +1304,47 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # Fork publication never receives npm credentials or an OIDC write permission.
+  fork-publish:
+    needs: [validate-dispatch, verify-release]
+    if: ${{ github.repository == 'alexalok/opencodex' && (github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania') && inputs.dry-run != true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+      pull-requests: read
+    env:
+      SOURCE_SHA: ${{ needs.validate-dispatch.outputs.source_sha }}
+      WORKFLOW_SHA: ${{ needs.validate-dispatch.outputs.workflow_sha }}
+      RELEASE_VERSION: ${{ needs.validate-dispatch.outputs.version }}
+    steps:
+      - name: Checkout trusted workflow revision
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ needs.validate-dispatch.outputs.workflow_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Recheck fork release prerequisites and create draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISH_ENABLED: ${{ vars.OCX_DEV_RELEASE_PUBLISH_ENABLED }}
+        run: |
+          set -euo pipefail
+          test "$PUBLISH_ENABLED" = true || { echo '::error::Publication is disabled.'; exit 1; }
+          test "$(git rev-parse HEAD)" = "$WORKFLOW_SHA"
+          node .github/scripts/fork-release.cjs check "$SOURCE_SHA"
+          node .github/scripts/fork-release.cjs service "$SOURCE_SHA"
+          node .github/scripts/fork-release.cjs history "$SOURCE_SHA" "$RELEASE_VERSION"
+          # Pin the tag to the validated release source, not the trusted workflow checkout.
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/v$RELEASE_VERSION" -f "sha=$SOURCE_SHA"
+          printf 'GitHub-only release %s from %s.\n\nBase: %s. No npm package is published.\n' "$RELEASE_VERSION" "$SOURCE_SHA" "$FORK_RELEASE_BRANCH" > "$RUNNER_TEMP/fork-release-notes.md"
+          gh release create "v$RELEASE_VERSION" --verify-tag --draft --title "v$RELEASE_VERSION" --notes-file "$RUNNER_TEMP/fork-release-notes.md"
+
   attach-release:
     runs-on: ubuntu-latest
-    needs: [validate-dispatch, publish, verify-release]
-    if: ${{ inputs.dry-run != true }}
+    needs: [validate-dispatch, publish, fork-publish, verify-release]
+    if: ${{ always() && inputs.dry-run != true && needs.validate-dispatch.result == 'success' && needs.verify-release.result == 'success' && ((github.repository == 'alexalok/opencodex' && (github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania') && needs.fork-publish.result == 'success') || (github.repository != 'alexalok/opencodex' && needs.publish.result == 'success')) }}
     timeout-minutes: 10
     permissions:
       contents: write
@@ -1398,7 +1491,7 @@ jobs:
   release-outcomes:
     name: release outcomes
     needs: [validate-dispatch, publish, attach-release]
-    if: ${{ always() && needs.validate-dispatch.result == 'success' && inputs.dry-run != true }}
+    if: ${{ github.repository != 'alexalok/opencodex' && always() && needs.validate-dispatch.result == 'success' && inputs.dry-run != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -1426,7 +1519,7 @@ jobs:
 
   publish:
     needs: [validate-dispatch, verify-release, verify-npm]
-    if: ${{ inputs.dry-run != true }}
+    if: ${{ github.repository != 'alexalok/opencodex' && inputs.dry-run != true }}
     runs-on: ubuntu-latest
     # The two registry waits below can each take about 20 minutes (about 55 minutes worst case with read timeouts).
     timeout-minutes: 75
@@ -1561,7 +1654,9 @@ jobs:
             console.log(eligible.at(-1)?.tag ?? "");
           ')"
           baseline=--initial
-          if [ -n "$baseline_tag" ]; then
+          # Fork tags may be inherited upstream publications absent from this repository.
+          # Check the complete candidate tree instead; service evidence remains mandatory.
+          if [ -n "$baseline_tag" ] && [ "${GITHUB_REPOSITORY:-}" != alexalok/opencodex ]; then
             draft="$(gh release view "$baseline_tag" --json isDraft --jq .isDraft)"
             test "$draft" = false || { echo '::error::Service baseline is not a published release.'; exit 1; }
             baseline="$(git rev-parse "refs/tags/${baseline_tag}^{commit}")"
@@ -1570,7 +1665,7 @@ jobs:
           required="$(RANGE="$range" node -e 'const x = JSON.parse(process.env.RANGE); if (typeof x.required !== "boolean") throw Error("invalid service range"); process.stdout.write(String(x.required));')"
           if [ "$required" = true ]; then
             node .github/scripts/release-evidence.cjs service "$SOURCE_SHA" || {
-              echo "::error::Dispatch service-lifecycle.yml from dev for source ${SOURCE_SHA} and wait for all platforms."; exit 1;
+              echo "::error::Dispatch service-lifecycle.yml from dev for source ${SOURCE_SHA} and wait for all platforms: gh workflow run service-lifecycle.yml --ref dev -f source_sha=${SOURCE_SHA}"; exit 1;
             }
           fi
 
@@ -1586,7 +1681,9 @@ jobs:
             echo '::error::Existing release tag points at a different source.'; exit 1
           fi
           if [ "$RESUME" = true ] && [ -n "$existing_tag_sha" ]; then allow="--allow-existing-tag-at-head"; fi
-          git tag --list 'v*' | bun scripts/version-line.ts assert-releasable "$RELEASE_VERSION" ${allow:+"$allow"}
+          fork_scope=""
+          if [ "${GITHUB_REPOSITORY:-}" = alexalok/opencodex ]; then fork_scope="--merged=$SOURCE_SHA"; fi
+          git tag ${fork_scope:+"$fork_scope"} --list 'v*' | bun scripts/version-line.ts assert-releasable "$RELEASE_VERSION" ${allow:+"$allow"}
 
       - name: Build and validate release changelog
         env:

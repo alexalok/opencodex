@@ -47,6 +47,7 @@ afterEach(() => {
 });
 
 const routed = (id: string, efforts: string[]): CatalogModel => ({ id, provider: "stub", reasoningEfforts: efforts, defaultReasoningEffort: "medium" });
+const modelMappings = { "stub/small": "small", "stub/big": "big" };
 
 const LAZYCODEX_ENABLED = '[plugins."omo@sisyphuslabs"]\nenabled = true\n';
 
@@ -101,7 +102,7 @@ describe("POST /api/codex-agent-roles/auto-assign", () => {
       const response = await handleManagementAPI(
         new Request("http://localhost/api/codex-agent-roles/auto-assign", { method: "POST", body: "{}" }),
         new URL("http://localhost/api/codex-agent-roles/auto-assign"),
-        { ...config, codexRoleTiers: undefined, codexRoleCapability: { artificialAnalysis: { apiKey: "aa-success-route-fixture" } } },
+        { ...config, codexRoleTiers: undefined, codexRoleCapability: { artificialAnalysis: { apiKey: "aa-success-route-fixture" }, modelMappings } },
         { ...deps, loadCodexRoleCapability: undefined },
       );
       const body = await response!.json();
@@ -155,7 +156,7 @@ describe("POST /api/codex-agent-roles/auto-assign", () => {
   });
 
   test("tiers a role by its domain's measured scores, and an unreadable source leaves price rank in charge", async () => {
-    const pricedConfig = { ...config, codexRoleTiers: undefined } as unknown as OcxConfig;
+    const pricedConfig = { ...config, codexRoleTiers: undefined, codexRoleCapability: { modelMappings } } as unknown as OcxConfig;
     answer = { text: JSON.stringify({ roles: { explorer: { ...sized("frontier", "glance"), domain: "coding" } } }) };
     const post = async (loadCodexRoleCapability: typeof deps.loadCodexRoleCapability) => {
       const response = await handleManagementAPI(
@@ -187,6 +188,35 @@ describe("POST /api/codex-agent-roles/auto-assign", () => {
     expect(failed.capability.error).toBe("the measured capability source could not be read");
     expect(JSON.stringify(failed)).not.toContain("/home/secret");
     expect((failed.proposals as any[]).find(p => p.role === "explorer").tierSource).not.toBe("measured");
+  });
+
+  test("benchmark names cannot promote unmapped provider models, but explicit mappings still work", async () => {
+    answer = { text: JSON.stringify({ roles: { explorer: { ...sized("frontier", "glance"), domain: "coding" } } }) };
+    const post = async (mappings?: Record<string, string>) => {
+      const response = await handleManagementAPI(
+        new Request("http://localhost/api/codex-agent-roles/auto-assign", { method: "POST", body: "{}" }),
+        new URL("http://localhost/api/codex-agent-roles/auto-assign"),
+        { ...config, codexRoleTiers: undefined, codexRoleCapability: { modelMappings: mappings } },
+        {
+          ...deps,
+          fetchAllModels: async () => [...await deps.fetchAllModels(), { id: "small", provider: "attacker" }],
+          loadCodexRoleCapability: async () => ({
+            source: ARTIFICIAL_ANALYSIS_SOURCE, publishedAt: null,
+            domains: { coding: new Map([["small", 66], ["big", 58]]) },
+          }),
+        },
+      );
+      expect(response!.status).toBe(200);
+      return await response!.json();
+    };
+    const unmapped = await post();
+    expect(unmapped.capability.domains.coding).toEqual([]);
+    expect(unmapped.proposals.find((row: { role: string }) => row.role === "explorer").status).toBe("unassigned");
+    const mapped = await post(modelMappings);
+    expect(mapped.capability.domains.coding).toEqual([
+      { model: "stub/small", tier: "frontier" }, { model: "stub/big", tier: "standard" },
+    ]);
+    expect(mapped.proposals.find((row: { role: string }) => row.role === "explorer")).toMatchObject({ proposedModel: "stub/small", tierSource: "measured" });
   });
 
   test("a routed model that declares no levels takes the ladder and default Codex shows for it", async () => {

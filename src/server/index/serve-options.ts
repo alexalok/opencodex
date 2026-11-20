@@ -1,4 +1,6 @@
 import { messagesUnknownEndpointMessage } from "../../lib/messages-error-body";
+import { trustedLoopbackForIngress } from "./loopback-trust";
+export { trustedLoopbackForIngress } from "./loopback-trust";
 import type { Server, ServerWebSocket } from "bun";
 import { modelAliasIdPromoter } from "./model-alias-id";
 import type { StartServerDeps } from "./startup-warnings";
@@ -98,7 +100,6 @@ import {
   isAllowedRequestOrigin,
   isAllowedManagementOrigin,
   isApiAuthRequired,
-  isLoopbackHostname,
   markTrustedHubManagementRequest,
   jsonResponse,
   admissionFields,
@@ -221,11 +222,6 @@ import { agentAssertionUnsupportedResponse, hasAgentAssertionAuthorization } fro
 import { runTurnStateCallerScope } from "../turn-state-handles";
 
 export type ServerIngress = "public" | "unauthenticated-loopback" | "hub-management" | "claude-intercept" | "hub-link" | "local-control";
-
-export function trustedLoopbackForIngress(ingress: ServerIngress, hostname: string): boolean {
-  return ingress === "unauthenticated-loopback" || ingress === "local-control"
-    || (ingress === "public" && isLoopbackHostname(hostname));
-}
 
 /**
  * Routes the Claude intercept TLS listener may reach. Everything else on that socket is relayed
@@ -476,6 +472,11 @@ export function createServeOptions(ctx: ServeOptionsContext) {
           status: 204,
           headers: managementPreflight ? managementCorsHeaders(req, config) : corsHeaders(req, policy),
         });
+      }
+
+      if (url.pathname === "/v1/hub-quota") {
+        const { handleHubQuota } = await import("../hub-quota");
+        return withCors(await handleHubQuota(req, config, undefined, policy), req, policy);
       }
 
       // An OCX-only executor exchanges one short-lived pairing code for a device-scoped
@@ -781,7 +782,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
           return withCors(formatErrorResponse(403, "origin_rejected", "cross-origin data-plane request blocked"), req, policy);
         }
         const { serializePersistedCatalog, persistedCodexVersion, MAX_REMOTE_CATALOG_BYTES } = await import("../catalog-download");
-        const serialized = await serializePersistedCatalog();
+        const serialized = await serializePersistedCatalog(config);
         if (serialized.body === null) {
           // Built directly rather than through formatErrorResponse: that helper derives
           // `code` from the status and message via classifyError, and these two need stable,

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { handleManagementAPI } from "../../src/server/management-api";
 import { loadConfig, saveConfig } from "../../src/config";
@@ -401,4 +401,138 @@ describe("GET|HEAD /v1/catalog least-privilege data-plane route (#809)", () => {
       await server.stop(true);
     }
   });
+});
+
+
+test("hub catalog downloads project discovered natives without writing the persisted catalog", async () => {
+  const { recordDiscoveredNativeModels, resetDiscoveredNativeModelsForTests } = await import("../../src/codex/catalog/discovered-natives");
+  const { catalogProjectionKey, serializePersistedCatalog } = await import("../../src/server/catalog-download");
+  isolatedCodexHome = installIsolatedCodexHome("ocx-hub-discovered-download-");
+  const file = join(isolatedCodexHome.path, "opencodex-catalog.json");
+  const future = "gpt-9-download-test";
+  const config = { ...loadConfig(), runtimeRole: "hub", defaultProvider: "openai", providers: {
+    openai: { adapter: "openai-responses", baseUrl: "https://chatgpt.com/backend-api/codex", authMode: "forward" },
+  } } as OcxConfig;
+  try {
+    resetDiscoveredNativeModelsForTests();
+    recordDiscoveredNativeModels([{
+      slug: future, display_name: "Future download model", supported_in_api: true, visibility: "list",
+      context_window: 123000, max_context_window: 456000,
+      supported_reasoning_levels: [{ effort: "high", description: "Deep" }],
+      default_reasoning_level: "high", model_messages: { instructions_template: "Fixture instructions" },
+      available_access_programs: { cyber: ["private-fixture"] }, availability_nux: { message: "private" },
+    }], "99.0.0");
+    const missing = await serializePersistedCatalog(config);
+    expect(missing.body).toBeNull();
+    expect(existsSync(file)).toBe(false);
+    writeFileSync(file, CATALOG_FIXTURE_BYTES);
+    const projected = await serializePersistedCatalog(config);
+    const models = JSON.parse(projected.body!).models;
+    expect(models[0]).toEqual(JSON.parse(CATALOG_FIXTURE_BYTES).models[0]);
+    expect(models.find((row: { slug: string }) => row.slug === future)).toMatchObject({ display_name: "Future download model", context_window: 123000 });
+    expect(projected.body).not.toContain("private-fixture");
+    expect(projected.body).not.toContain("availability_nux");
+    const pickerConfig = { ...config, codexAccountPickerEnabled: true,
+      codexAccounts: [{ id: "pool-fixture", isMain: false }], codexAccountNamespaces: { work: "pool-fixture" } } as OcxConfig;
+    const picker = JSON.parse((await serializePersistedCatalog(pickerConfig)).body!).models;
+    expect(picker.find((model: { slug: string }) => model.slug === future).visibility).toBe("hide");
+    expect(picker.find((model: { slug: string }) => model.slug === `work/${future}`)).toMatchObject({ visibility: "list", context_window: 123000 });
+    const reviewerConfig = { ...pickerConfig, autoReviewOverride: { enabled: true, model: "mock/test-model" } };
+    const reviewed = JSON.parse((await serializePersistedCatalog(reviewerConfig)).body!).models;
+    expect(reviewed.find((model: { slug: string }) => model.slug === future).auto_review_model_override).toBe("mock/test-model");
+    expect(reviewed.find((model: { slug: string }) => model.slug === `work/${future}`).auto_review_model_override).toBe("mock/test-model");
+    expect(reviewed[0]).toEqual(JSON.parse(CATALOG_FIXTURE_BYTES).models[0]);
+    expect(catalogProjectionKey(reviewerConfig)).not.toBe(catalogProjectionKey(pickerConfig));
+    const disabledPicker = JSON.parse((await serializePersistedCatalog({ ...pickerConfig, disabledModels: [`work/${future}`] })).body!).models;
+    expect(disabledPicker.find((model: { slug: string }) => model.slug === `work/${future}`).visibility).toBe("hide");
+    const exactHidden = { ...pickerConfig, disabledModels: [`work/${future}`] };
+    const exactOmitted = { ...exactHidden, omitDisabledNativeModels: true };
+    const exactModels = JSON.parse((await serializePersistedCatalog(exactOmitted)).body!).models;
+    expect(exactModels.some((model: { slug: string }) => model.slug === `work/${future}`)).toBe(false);
+    expect(exactModels.some((model: { slug: string }) => model.slug === future)).toBe(true);
+    expect(exactModels[0]).toEqual(JSON.parse(CATALOG_FIXTURE_BYTES).models[0]);
+    expect(catalogProjectionKey(exactOmitted)).not.toBe(catalogProjectionKey(exactHidden));
+    const omittedPicker = JSON.parse((await serializePersistedCatalog({ ...pickerConfig, disabledModels: [future], omitDisabledNativeModels: true })).body!).models;
+    expect(omittedPicker.map((model: { slug: string }) => model.slug)).toEqual(["mock/test-model"]);
+    const nativeV1 = await serializePersistedCatalog({ ...config, multiAgentMode: "v2", keepNativeChatGptOnV1: true });
+    expect(JSON.parse(nativeV1.body!).models.find((model: { slug: string }) => model.slug === future).multi_agent_version).toBe("v1");
+    expect(readFileSync(file, "utf8")).toBe(CATALOG_FIXTURE_BYTES);
+    expect((await serializePersistedCatalog(config)).etag).toBe(projected.etag);
+    const url = new URL("http://localhost/api/catalog");
+    const response = await handleManagementAPI(new ManagementRequest(url, { headers: managementHeaders() }), url, config);
+    expect(response?.status).toBe(200);
+    expect(await response!.text()).toBe(projected.body);
+    expect(response!.headers.get("etag")).toBe(projected.etag);
+    saveConfig(config);
+    const { catalogRevisionForRoutes } = await import("../../src/server/management/link-child-ops-routes");
+    const revision = catalogRevisionForRoutes(config);
+    expect(revision.current()?.etag).toBe(projected.etag);
+    saveConfig({ ...config, port: 0, hostname: "127.0.0.1",
+      apiKeys: [{ id: "hub-reader", name: "hub reader", key: "ocx_data_hubfixture", createdAt: "2026-08-30T00:00:00.000Z" }] });
+    const { startServer } = await import("../../src/server");
+    const server = startServer(0);
+    try {
+      const remote = await fetch(new URL("/v1/catalog", server.url), { headers: { "x-opencodex-api-key": "ocx_data_hubfixture" } });
+      expect(remote.status).toBe(200);
+      const management = await handleManagementAPI(new ManagementRequest(url, { headers: managementHeaders() }), url, loadConfig());
+      expect(await remote.text()).toBe(await management!.text());
+      expect(readFileSync(file, "utf8")).toBe(CATALOG_FIXTURE_BYTES);
+    } finally { await server.stop(true); }
+    const hidden = await serializePersistedCatalog({ ...config, disabledModels: [future] });
+    expect(JSON.parse(hidden.body!).models.find((row: { slug: string }) => row.slug === future).visibility).toBe("hide");
+    expect(hidden.etag).not.toBe(projected.etag);
+    saveConfig({ ...config, disabledModels: [future] });
+    // Disk edits do not change the serving process's live policy until that object is updated.
+    expect(revision.current()?.etag).toBe(projected.etag);
+    expect(revision.current()?.etag).toBe((await serializePersistedCatalog(config)).etag);
+    const otherConfig = { ...config, disabledModels: [future] };
+    expect(catalogRevisionForRoutes(otherConfig).current()?.etag).toBe(hidden.etag);
+    expect(revision.current()?.etag).toBe(projected.etag);
+    config.disabledModels = [future];
+    expect(revision.current()?.etag).toBe(hidden.etag);
+    const omitted = await serializePersistedCatalog({ ...config, disabledModels: [future], omitDisabledNativeModels: true });
+    expect(JSON.parse(omitted.body!).models.map((row: { slug: string }) => row.slug)).toEqual(["mock/test-model"]);
+    expect((await serializePersistedCatalog({ ...config, runtimeRole: "standalone" })).body).toBe(CATALOG_FIXTURE_BYTES);
+    const converged = { models: [{ ...models.find((row: { slug: string }) => row.slug === future),
+      display_name: "User name", supported_reasoning_levels: [{ effort: "low", description: "Clamped" }] }] };
+    writeFileSync(file, JSON.stringify(converged));
+    expect((await serializePersistedCatalog(config)).body).toBe(JSON.stringify(converged));
+    const filledPicker = JSON.parse((await serializePersistedCatalog(pickerConfig)).body!).models;
+    expect(filledPicker[0]).toEqual(converged.models[0]);
+    expect(filledPicker.some((model: { slug: string }) => model.slug === `work/${future}`)).toBe(true);
+    delete config.disabledModels;
+    saveConfig(config);
+    const beforeDiscovery = revision.current()?.etag;
+    recordDiscoveredNativeModels([{ slug: "gpt-9-next-download", display_name: "Next model", supported_reasoning_levels: [], supported_in_api: true, visibility: "list" }], "99.0.0");
+    expect(revision.current()?.etag).not.toBe(beforeDiscovery);
+    expect(revision.current()?.etag).toBe((await serializePersistedCatalog(config)).etag);
+    config.runtimeRole = "standalone";
+    saveConfig(config);
+    expect(revision.current()?.etag).toBe((await serializePersistedCatalog({ ...config, runtimeRole: "standalone" })).etag);
+  } finally { resetDiscoveredNativeModelsForTests(); }
+});
+
+
+test("hub quota accepts allowed preflights while keeping GET credentials mandatory", async () => {
+  isolatedCodexHome = installIsolatedCodexHome("ocx-hub-quota-cors-");
+  const origin = "http://localhost:4321";
+  const key = "quota-cors-fixture-key";
+  saveConfig({ ...loadConfig(), port: 0, hostname: "127.0.0.1", runtimeRole: "hub",
+    apiKeys: [{ id: "quota-client", name: "Quota client", key,
+      createdAt: "2026-01-01T00:00:00Z", allowQuotaRead: true }] } as OcxConfig);
+  const { startServer } = await import("../../src/server");
+  const server = startServer(0);
+  const url = new URL("/v1/hub-quota", server.url);
+  try {
+    const headers = { origin, "access-control-request-method": "GET", "access-control-request-headers": "x-opencodex-api-key" };
+    const preflight = await fetch(url, { method: "OPTIONS", headers });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-origin")).toBe(origin);
+    expect(preflight.headers.get("access-control-allow-headers")?.toLowerCase()).toContain("x-opencodex-api-key");
+    expect((await fetch(url, { method: "OPTIONS", headers: { ...headers, origin: "https://untrusted.example.test" } })).status).toBe(403);
+    expect((await fetch(url, { headers: { origin } })).status).toBe(401);
+    const allowed = await fetch(url, { headers: { origin, "x-opencodex-api-key": key } });
+    expect(allowed.status).toBe(200);
+    expect(allowed.headers.get("access-control-allow-origin")).toBe(origin);
+  } finally { await server.stop(true); }
 });

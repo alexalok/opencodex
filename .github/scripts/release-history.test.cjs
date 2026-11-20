@@ -3,10 +3,10 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { generateKeyPairSync, sign } = require('node:crypto');
-const { mkdtempSync, rmSync, mkdirSync, writeFileSync } = require('node:fs');
+const { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } = require('node:fs');
 const { tmpdir } = require('node:os');
 const { join, resolve } = require('node:path');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawnSync } = require('node:child_process');
 const { reconcileHistory, verifyExactResume, createReceiptVerifier, collectPublicationHistory, verifyLegacyTreeEvidence } = require('./release-history.cjs');
 
 const old = 'a'.repeat(40), newer = 'b'.repeat(40), other = 'c'.repeat(40), workflow = 'd'.repeat(40);
@@ -330,4 +330,35 @@ test('legacy tree evidence rejects other changes, wrong version values, and an u
   assert.throws(() => verifyLegacyTreeEvidence({...args,baselineSha:changedFile,candidateSha:changedFile,devSha:changedFile}), /version|content/i);
   writeFileSync(join(dir,'extra.txt'),'unexpected\n'); const extraPath = commit('extra path');
   assert.throws(() => verifyLegacyTreeEvidence({...args,baselineSha:extraPath,candidateSha:extraPath,devSha:extraPath}), /paths|diff/i);
+});
+
+test('CI fetches missing legacy evidence by exact upstream SHA and fails closed', () => {
+  const workflow = readFileSync(resolve(__dirname,'../workflows/ci.yml'),'utf8');
+  const step = workflow.split('      - name: Fetch fixed upstream legacy test evidence\n')[1]?.split('\n      - name:')[0];
+  assert.ok(step, 'legacy evidence setup must precede history tests');
+  const script = step.split('        run: |\n')[1].split('\n').map(line => line.replace(/^          /,'')).join('\n');
+  const hashes = ['0627a2c255bc239d5748119f1d0bc4457a1c03e3','667662903a6c139524506667d12656d9ad50fad0','68eee1eb804445ad86fe942b734060f323eb1517'];
+  const mock = `
+    fetched=''
+    git() {
+      if [ "$1" = cat-file ]; then
+        [ "$PRESENT" = yes ] || [ "$fetched^{commit}" = "$3" ]
+      elif [ "$1" = fetch ]; then
+        [ "$2" = --no-tags ] && [ "$3" = --no-write-fetch-head ] &&
+          [ "$4" = https://github.com/lidge-jun/opencodex.git ] || return 91
+        printf '%s\\n' "$5"
+        [ "$FAIL_FETCH" != yes ] || return 92
+        [ "$EMPTY_FETCH" = yes ] || fetched="$5"
+      else return 93; fi
+    }
+  `;
+  const run = extra => spawnSync('bash',['-e','-c',mock + script],{encoding:'utf8',env:{...process.env,PRESENT:'no',FAIL_FETCH:'no',EMPTY_FETCH:'no',...extra}});
+  const missing = run({});
+  assert.equal(missing.status,0,missing.stderr);
+  assert.deepEqual(missing.stdout.trim().split('\n'),hashes);
+  const present = run({PRESENT:'yes'});
+  assert.equal(present.status,0,present.stderr); assert.equal(present.stdout,'');
+  assert.notEqual(run({FAIL_FETCH:'yes'}).status,0);
+  assert.notEqual(run({EMPTY_FETCH:'yes'}).status,0);
+  assert.ok(workflow.indexOf('name: Fetch fixed upstream legacy test evidence') < workflow.indexOf('name: Test release evidence, history and docs deployment'));
 });

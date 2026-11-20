@@ -251,6 +251,9 @@ describe("docs telemetry dashboard route and navigation", () => {
     expect(existsSync(guidePath)).toBe(true);
     const guideMd = readFileSync(guidePath, "utf8");
     expect(guideMd).toContain("(/dashboard/)");
+    expect(guideMd).toContain("returns **503**");
+    expect(guideMd).toContain("Cache-Control: no-store");
+    expect(guideMd).toContain("withholds historical aggregates");
 
     const astroSource = readFileSync(
       repoPath("docs-site/src/components/TelemetryDashboard.astro"),

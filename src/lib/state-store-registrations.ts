@@ -1,3 +1,4 @@
+import { bindTrafficQuotaConfig } from "../providers/quota/traffic-refresh";
 import {
   getConfigDir,
   reconcileConfigWarningMemos,
@@ -80,6 +81,7 @@ export function notifyLiveConfigObservers(config: OcxConfig): void {
 
 export function setLiveStateStoreConfig(config: OcxConfig): void {
   liveServerConfig = config;
+  bindTrafficQuotaConfig(config);
   // The one place the server's live config object is installed; detached configs (catalog sync)
   // never come through here, so the outbound compression opt-in follows the running server only.
   bindUpstreamRequestCompressionConfig(config);

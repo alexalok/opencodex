@@ -3,14 +3,13 @@ title: Telemetry and Privacy
 description: Anonymous daily usage statistics, consent and agent boundaries, opt-out controls, payload preview, and collector retention.
 ---
 
-opencodex includes anonymous, daily usage telemetry so maintainers and the community can see which
-versions, platforms, install channels, provider kinds, and coarse model families are used in
-practice and where request failures occur. Project-wide daily aggregates (active and new install
-counts, a 365-day active-install heatmap, active minutes, request outcomes, five-bucket token
-totals, daily and range provider-kind and model-family shares, top-50 version counts, OS/CPU
-platform and install-channel counts, and error-cause counts) are served publicly by the
-collector's read-only `GET /v1/stats` endpoint for the [public project dashboard](/dashboard/); per-day install
-hashes (`installDayHash`) and rate-limit hashes (`ip_hash`) are never returned by `/v1/stats`.
+opencodex collects anonymous daily usage reports after the consent/disclosure rules below.
+This fork's collector withholds public project aggregates: `GET /v1/stats` returns **503** with
+`Cache-Control: no-store`, before reading database aggregates or cached responses. Reports carry
+client-mintable install hashes, so they cannot prove distinct users or establish a safe privacy
+threshold. This also withholds historical aggregates from the [public project dashboard](/dashboard/). Public statistics require a separately
+reviewed identity/provenance design; a shared public secret or an environment flag cannot enable
+them. This source change does not deploy the Worker or recall responses distributed earlier.
 
 Telemetry is **on by default**, and **nothing is sent until a person has seen the notice**.
 
@@ -276,10 +275,14 @@ opencodex never includes any of the following in telemetry payloads:
 
 ## Public profile and rank (opt-in)
 
-Separately from the anonymous telemetry above, you can connect a **public profile** to appear on the
-[leaderboard](/dashboard/#leaderboard) and see where your own usage ranks over the last day, week and month. It
-is off unless you connect it yourself, and it never changes your anonymous telemetry choice; connecting
-needs anonymous telemetry to be on, because the profile's totals come from the same local daily aggregate.
+Profiles remain opt-in and separate from anonymous telemetry. This fork currently withholds
+[leaderboard](/dashboard/#leaderboard) rankings and all profile usage reads: `GET /v1/leaderboard`,
+`GET /v1/profiles/by-handle/<handle>`, and `GET /v1/profiles/me` return **503** with
+`Cache-Control: no-store` and `x-robots-tag: noindex`. The own-profile response is also held because
+it includes cross-profile ranks, not just private account data. A profile secret proves ownership
+of a self-created profile, not provenance of submitted usage. Historical rows and cached results
+are withheld too. Creation, day submission and authenticated deletion remain available; connecting
+still requires anonymous telemetry to be on and does not change that choice.
 
 - **Connect** from the *Public profile & rank* card on the dashboard Home, or with
   `ocx telemetry profile connect --handle <handle> [--name <display name>] [--avatar <colour>]` in an
@@ -290,27 +293,26 @@ needs anonymous telemetry to be on, because the profile's totals come from the s
   its SHA-256 hash. Like the telemetry decision, connecting is refused for agents
   (`agent_consent_required`), non-interactive terminals (`tty_required`) and remembered dashboard
   sessions.
-- **What is public**: the handle, display name and colour, your rank, and per day the request count, the
-  five token buckets and per-model-family request and token totals (the closed `modelFamily` list).
-  The collector's profile and leaderboard responses carry `x-robots-tag: noindex`; the
-  [dashboard](/dashboard/#leaderboard) page renders them in the browser and is itself a public page.
+- **What is public**: no profile usage, ranks, or leaderboard entries are served by this fork while
+  the provenance hold applies. Public reads fail before database or cache access, regardless of
+  whether a caller supplies a real self-minted secret or a forged token.
 - **What is sent**: once per completed UTC day strictly after the day you connected, at most one day per
   tick and no more than 7 days back, `POST /v1/profiles/me/days` with exactly those totals. Profile
   submissions carry no install ID, install-day hash, batch ID, version, platform, install channel, provider
   name or kind, error, prompt, output, key, account or path, and run on their own timer. Nothing is sent
   while anonymous telemetry is off (`OCX_TELEMETRY=0`, `DO_NOT_TRACK=1`, declined or awaiting the notice);
   the profile stays connected and resumes when telemetry is on again.
-- **See it**: `ocx telemetry profile status` shows the profile, a summary of the next day it would send, and
-  your ranks; `ocx telemetry profile status --json` includes the exact payload as `preview`. The card shows the
-  profile and ranks.
+- **See it**: `ocx telemetry profile status --json` retains local profile/payload preview data.
+  Remote ranks and usage are unavailable while the collector hold applies; the card cannot show
+  current verified rankings.
 - **Disconnect** at any time, from the card or with `ocx telemetry profile disconnect` (always allowed,
   including for agents, with the proxy stopped and with telemetry off). It deletes the profile and every day
   submitted for it on the collector. If the collector cannot be reached, the deletion stays pending, nothing
   more is sent, and the proxy retries on every tick and on its next start. Disconnecting and connecting again
   is also how to replace the secret.
-- **Ranking**: for each period the collector ranks profiles with a positive total using standard
-  competition ranking (ties share a rank). Totals are self-reported and checked for consistency and daily
-  limits, each day is accepted once, and the first submission for a day wins.
+- **Ranking**: the unpublished internal algorithm uses standard competition ranking (ties share
+  a rank). Consistency checks, one submission per day and rate limits do not prove usage; public
+  ranking requires a separately reviewed non-mintable usage-provenance scheme.
 - **Abuse controls**: reserved handles, display names of 1–32 letters, digits, spaces and `. _ ' -` that cannot
   look like a web address, five profile
   creations per network per hour, per-profile submission limits, profiles that never submit are removed after
@@ -359,29 +361,15 @@ needs anonymous telemetry to be on, because the profile's totals come from the s
   ignored) with a mandatory secret salt and the current UTC hour
   (`sha256(RATE_LIMIT_SALT + "\0" + bucketHour + "\0" + key)`) in `rate_limits`, and an hourly
   scheduled job (`15 * * * *`) deletes each bucket within about 2 hours 15 minutes of its hour.
-- **Install-days, small-cohort protection, and unauthenticated self-reported figures** — because
-  `installDayHash` rotates every UTC day, `totals.activeInstalls` and the `installs` count in each
-  breakdown of `GET /v1/stats` measure **install-days** (the sum of daily reporting installs across
-  the selected range), while `totals.avgDailyActiveInstalls` reports `install-days / days in range`
-  rounded to 1 decimal place (shown on the dashboard as **Avg daily active installs** with
-  install-days in the tooltip). Small-cohort protection is applied per day, on distinct installs:
-  a breakdown row (`providers`, `models`, `versions`, `platforms`, `channels`, `errors`, and each
-  day of `dailyByProvider`) includes a day's value for a key only when at least **10 distinct
-  installs** reported that key on that day, before days are summed into the selected range. One
-  install therefore cannot reach the threshold alone by reporting on many days or through many
-  providers or model families (`daily_models`, `daily_errors`, `daily_provider_installs` and
-  `daily_family_installs` count each report once per key). Version, platform and channel rows below
-  the threshold fold into that day's `"other"`, published only if it reaches 10; provider, model
-  and error rows below it are dropped. `totals`, `daily`, and `heatmap` stay unfiltered, so a
-  suppressed value can still be approximated by subtraction from the published totals. In addition,
-  reports to
-  `POST /v1/events` are **unauthenticated** and can be forged within the per-key rate limit and
-  payload bounds. Forged reports can also lift a real install over the threshold: 9 forged reports
-  for a rare key on the same day as one real install make 10 distinct installs, and the sender can
-  subtract their own share to recover that install's figures for the key. The install stays
-  anonymous, and the rate limit raises the cost without preventing it. The public dashboard
-  therefore labels all figures
-  **"self-reported by opencodex installs"**.
+- **Public aggregate publication is held closed** — reports are **unauthenticated** and
+  client-mintable `installDayHash` values cannot establish trusted distinct users. The internal,
+  unpublished builder measures install-days and `avgDailyActiveInstalls`, and applies its
+  `daily_models` cohort threshold per day at **10 distinct
+  installs**. An attacker can mint ten hashes, or combine nine forged reports with one real
+  report and use subtraction to infer that user's contribution. Rate limits and the label
+  **"self-reported by opencodex installs"** do not solve this integrity/privacy problem.
+  Consequently no totals, breakdowns, heatmaps, or cached statistics are exposed by this fork's
+  `/v1/stats` route until report provenance and historical-data handling receive security review.
 - **Daily aggregate retention** — `daily_installs` rows (which hold only the per-day hash, version,
   release channel, OS, CPU architecture, install channel, `new_install`, and `active_minutes`) are
   pruned after 400 days; `daily_totals`, `daily_models`, and `daily_errors` hold only project-wide

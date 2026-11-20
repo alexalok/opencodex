@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +11,7 @@ import {
   disconnectTelemetryProfile,
   resetProfileServiceCachesForTests,
 } from "../../src/telemetry/profile/service";
+import * as profileState from "../../src/telemetry/profile/state";
 import { deleteTelemetryProfileFile, readTelemetryProfileFile, writeTelemetryProfileState } from "../../src/telemetry/profile/state";
 import { buildProfileDay, runProfileTick } from "../../src/telemetry/profile/sync";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
@@ -44,7 +45,7 @@ function aggregate(day: string, rows: Array<[string, string, number, number]>): 
 describe("opt-in public profile: client sync", () => {
   let home: string;
   let calls: Call[];
-  let respond: (call: Call) => Response;
+  let respond: (call: Call) => Response | Promise<Response>;
   const prevHome = process.env.OPENCODEX_HOME;
   const env = {} as Record<string, string | undefined>;
 
@@ -89,6 +90,90 @@ describe("opt-in public profile: client sync", () => {
   });
 
   const connect = () => connectTelemetryProfile({ handle: "Jun", displayName: "Jun", avatar: "blue" }, { configDir: home, env, now: CONNECT_AT });
+
+  test("two processes connecting different handles publish one credential and roll back only the loser", async () => {
+    const worker = join(home, "connect-race.ts");
+    writeFileSync(worker, `
+      import { spyOn } from "bun:test";
+      import { writeFileSync, existsSync } from "node:fs";
+      import * as state from ${JSON.stringify(repoPath("src/telemetry/profile/state.ts"))};
+      import { connectTelemetryProfile } from ${JSON.stringify(repoPath("src/telemetry/profile/service.ts"))};
+      const [home, id] = process.argv.slice(2);
+      const secret = "ocxp_" + id.repeat(43);
+      const original = state.writeTelemetryProfileState;
+      spyOn(state, "writeTelemetryProfileState").mockImplementation((...args) => {
+        writeFileSync(home + "/ready-" + id, "ready");
+        const deadline = Date.now() + 10000;
+        while (!existsSync(home + "/release")) {
+          if (Date.now() > deadline) throw new Error("publication barrier timeout");
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+        }
+        return original(...args);
+      });
+      const fetcher = async (_url, init) => {
+        if (init.method === "DELETE") {
+          writeFileSync(home + "/deleted-" + id, new Headers(init.headers).get("authorization"));
+          return Response.json({ ok: true });
+        }
+        return Response.json({ ok: true, profile: { handle: "user-" + id.toLowerCase(), displayName: id, avatar: "blue" }, secret }, { status: 201 });
+      };
+      try {
+        await connectTelemetryProfile({ handle: "user-" + id.toLowerCase(), displayName: id, avatar: "blue" }, { configDir: home, env: {}, fetch: fetcher, baseUrl: "https://collector.test" });
+        writeFileSync(home + "/won-" + id, "won");
+      } catch (error) { console.error(String(error)); writeFileSync(home + "/lost-" + id, "lost"); }
+    `);
+    const children = ["A", "B"].map(id => Bun.spawn([process.execPath, worker, home, id], { env: { ...process.env, OPENCODEX_HOME: home }, stdout: "pipe", stderr: "pipe" }));
+    try {
+      const deadline = Date.now() + 10000;
+      while (!["A", "B"].every(id => existsSync(join(home, "ready-" + id)))) {
+        if (Date.now() > deadline) { for (const child of children) child.kill(); throw new Error("connect workers did not reach publication barrier: " + (await Promise.all(children.map(child => new Response(child.stderr).text()))).join("; ")); }
+        await Bun.sleep(10);
+      }
+      writeFileSync(join(home, "release"), "release");
+      expect(await Promise.all(children.map(child => child.exited))).toEqual([0, 0]);
+      const winner = ["A", "B"].filter(id => existsSync(join(home, "won-" + id)));
+      expect(winner).toHaveLength(1);
+      const loser = winner[0] === "A" ? "B" : "A";
+      expect(readTelemetryProfileFile(home).state?.secret).toBe("ocxp_" + winner[0]!.repeat(43));
+      expect(existsSync(join(home, "deleted-" + winner[0]))).toBe(false);
+      expect(readFileSync(join(home, "deleted-" + loser), "utf8")).toBe("Bearer ocxp_" + loser.repeat(43));
+      expect(readdirSync(home).filter(name => name.endsWith(".tmp"))).toEqual([]);
+    } finally {
+      for (const child of children) child.kill();
+      await Promise.all(children.map(child => child.exited));
+    }
+  }, 20000);
+
+  for (const mode of ["unsaved", "saved", "replacement", "unreadable", "rollback-offline"] as const) {
+    test(`failed connect preserves saved state and rolls back its own unsaved secret (${mode})`, async () => {
+      const original = profileState.writeTelemetryProfileState;
+      const error = new Error("ENOSPC: synthetic credential write failure");
+      const replacementSecret = "ocxp_" + "B".repeat(43);
+      const originalRespond = respond;
+      if (mode === "rollback-offline") respond = call => {
+        if (call.method === "DELETE") throw new Error("collector offline");
+        return originalRespond(call);
+      };
+      const writer = spyOn(profileState, "writeTelemetryProfileState").mockImplementation((state, dir, now) => {
+        if (mode === "saved") original(state, dir, now);
+        if (mode === "replacement") original({ ...state, secret: replacementSecret }, dir, now);
+        if (mode === "unreadable") writeFileSync(telemetryProfilePath(home), "unreadable");
+        throw error;
+      });
+      try {
+        await expect(connect()).rejects.toBe(error);
+        const deletions = calls.filter(call => call.method === "DELETE");
+        const rollback = mode !== "saved" && mode !== "unreadable";
+        expect(deletions).toHaveLength(rollback ? 1 : 0);
+        if (rollback) expect(deletions[0]!.headers.authorization).toBe(`Bearer ${SECRET}`);
+        const file = readTelemetryProfileFile(home);
+        expect(file.state?.secret ?? null).toBe(mode === "saved" ? SECRET : mode === "replacement" ? replacementSecret : null);
+        expect(file.unreadable).toBe(mode === "unreadable");
+      } finally {
+        writer.mockRestore();
+      }
+    });
+  }
 
   test("a profile day carries only totals and model-family sums", () => {
     const built = buildProfileDay(aggregate("2026-11-06", [["anthropic", "claude-opus", 2, 100], ["openrouter", "claude-opus", 1, 10], ["openai", "gpt-6", 3, 5]]));
@@ -257,6 +342,40 @@ describe("opt-in public profile: client sync", () => {
     expect(existsSync(telemetryProfilePath(home))).toBe(false);
     expect(calls).toHaveLength(0);
     await connect();
+  });
+
+  test("an older overlapping disconnect preserves a reconnected profile and its deletion secret", async () => {
+    await connect();
+    const completions: Array<(response: Response) => void> = [];
+    let bothStarted!: () => void;
+    const started = new Promise<void>(resolve => { bothStarted = resolve; });
+    respond = call => {
+      expect(call.method).toBe("DELETE");
+      expect(call.headers.authorization).toBe(`Bearer ${SECRET}`);
+      return new Promise<Response>(resolve => {
+        completions.push(resolve);
+        if (completions.length === 2) bothStarted();
+      });
+    };
+    const first = disconnectTelemetryProfile({ configDir: home, now: CONNECT_AT });
+    const second = disconnectTelemetryProfile({ configDir: home, now: CONNECT_AT });
+    await started;
+    completions[0]!(Response.json({ ok: true, deleted: true }));
+    expect(await first).toEqual({ status: "deleted" });
+    expect(readTelemetryProfileFile(home).state).toBeNull();
+    const nextSecret = "ocxp_" + "B".repeat(43);
+    respond = () => Response.json({ ok: true, profile: { handle: "jun", displayName: "Jun", avatar: "blue" }, secret: nextSecret }, { status: 201 });
+    await connect();
+    const reconnected = readFileSync(telemetryProfilePath(home), "utf8");
+    completions[1]!(Response.json({ ok: true, deleted: true }));
+    expect(await second).toEqual({ status: "deleted" });
+    expect(readTelemetryProfileFile(home).state?.secret).toBe(nextSecret);
+    expect(readFileSync(telemetryProfilePath(home), "utf8")).toBe(reconnected);
+    respond = call => {
+      expect(call.headers.authorization).toBe(`Bearer ${nextSecret}`);
+      return Response.json({ ok: true, deleted: true });
+    };
+    expect(await disconnectTelemetryProfile({ configDir: home, now: CONNECT_AT })).toEqual({ status: "deleted" });
   });
 
   test("disconnect never reports success while the secret file is still on disk", async () => {

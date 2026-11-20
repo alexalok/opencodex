@@ -142,8 +142,8 @@ until then.
 `src/telemetry/contract.ts` directly, deduplicates reports on `(day, install_day_hash)` in a single
 atomic conditional D1 batch, rate-limits `POST /v1/events` to 120 reports/hour per salted hourly hash
 of the client key (`HTTP 429` with `Retry-After`; a bucket is deleted by the hourly prune at most 2 hours
-15 minutes after its hour begins) without storing raw IP addresses, and serves cached aggregate rollups
-from `GET /v1/stats`. The client key comes only from `cf-connecting-ip`: IPv4 per address,
+15 minutes after its hour begins) without storing raw IP addresses. Public `GET /v1/stats` is held closed
+with `503` (see [trust hold](#public-aggregate-trust-hold)); the following describes its unpublished internal builder. The client key comes only from `cf-connecting-ip`: IPv4 per address,
 IPv4-mapped IPv6 as that IPv4 address, and any other IPv6 address collapsed to its /64 prefix;
 `x-forwarded-for` is ignored and a request without `cf-connecting-ip` shares one fixed bucket. In
 `TelemetryStatsV1`, `totals.activeInstalls` and breakdown `installs` counters represent install-days
@@ -176,13 +176,17 @@ with `gui/src/telemetry-profile-api.ts`, and `docs-site/src/components/Telemetry
   `ocx telemetry profile connect` refuses `isAgentDriven()` (`agent_consent_required`) and non-TTY or `OCX_SERVICE`
   (`tty_required`) and asks `[y/N]`. Connecting requires anonymous telemetry to be effective; it never writes
   `config.json`, `telemetry-state.json` or `telemetry-id.json`. Disconnecting (`DELETE /api/telemetry/profile`,
-  `ocx telemetry profile disconnect`) is always permitted and never touches the telemetry decision.
+  `ocx telemetry profile disconnect`) is always permitted and never touches the telemetry decision. After a collector deletion response, disconnect re-reads local state and removes only the matching secret; a reconnected profile is preserved, and unreadable replacement state fails closed.
 - **No linkage.** No file under `src/telemetry/profile/` imports `install-id`, `payload` or `sender` or names the install
   id, install-day hash or batch id (`tests/usage/usage-telemetry-profile-sync.test.ts` scans for it). Profile calls go
   to `/v1/profiles*` with a bearer secret on their own timer.
 - **State.** `<OPENCODEX_HOME>/telemetry-profile.json` (atomic no-follow write, `0600`, recorded for uninstall) holds the
   handle, display name, avatar, secret, connect day, sent days and `pendingDelete`/`revoked`. An unreadable file
-  sends nothing. No API response, CLI output or GUI view carries the secret (`toPublicProfileState`).
+  sends nothing. Initial connect publishes with atomic exclusive creation (fsynced private temp, no-replace
+  hard link), so simultaneous CLI/dashboard processes cannot overwrite another credential. The losing
+  connect rolls back only its newly created collector profile. A failed connect write rolls back the newly created collector profile only when re-reading
+  local state confirms its secret was not saved; matching or unreadable state is preserved. Remote rollback
+  is best effort if the collector is unavailable, and the original write error remains visible. No API response, CLI output or GUI view carries the secret (`toPublicProfileState`).
 - **Sync.** `src/telemetry/profile/sync.ts` sends at most one day per tick, chosen by
   `resolveNextEligibleTelemetryDay` with the profile's own sent days and the connect day folded into
   `ineligibleThroughDay`, so every anonymous eligibility rule applies plus no day on or before the connect day.
@@ -200,3 +204,7 @@ with `gui/src/telemetry-profile-api.ts`, and `docs-site/src/components/Telemetry
 - **Surfaces.** The Home card shows while telemetry is effective or a profile exists, hides when the route is refused
   (Remote Link Child), and renders user strings as text. The docs-site leaderboard validates a handle before
   building any request and writes names with `textContent` only (`tests/ci-workflows/docs-telemetry-leaderboard.test.ts`).
+
+## Public aggregate trust hold
+
+The collector returns `503`/`Cache-Control: no-store` for all usage read routes (`GET /v1/stats`, `/v1/leaderboard`, `/v1/profiles/by-handle/<handle>`, and `/v1/profiles/me`) before reading D1 or either cache. The shared `usagePublicationHold` response also sets `x-robots-tag: noindex`. Own-profile GET is held because it includes cross-profile ranks, not only private account data; self-created bearer credentials prove ownership but not usage provenance. Creation, day ingestion and authenticated deletion remain available. Anonymous reports remain ingestible but their client-mintable install hashes cannot establish distinct trusted users or satisfy a privacy threshold. Existing data is also withheld. Internal aggregation/cache code remains testable, not routed publicly; re-enabling publication requires reviewed non-mintable identity/provenance and historical-data handling, not an environment flag or shared public secret. This code change does not deploy the Worker or invalidate previously distributed responses.

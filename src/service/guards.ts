@@ -2,7 +2,7 @@ import { execSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { getConfigDir, loadConfig } from "../config";
 import { withConfigMutationLockSync } from "../config/mutation-lock";
-import { hardenReusedServiceApiToken, serviceApiTokenFilePath } from "../lib/service-secrets";
+import { hardenReusedServiceApiToken, serviceApiTokenFilePath, serviceApiTokenFingerprint } from "../lib/service-secrets";
 import { tokenCollidesWithAdmin } from "../lib/admin-secrets";
 import { randomBytes } from "node:crypto";
 import { hardenSecretDir, hardenSecretPath } from "../lib/windows-secret-acl";
@@ -152,7 +152,12 @@ function persistServiceApiToken(token: string): string {
  * `OCX_API_TOKEN_FILE`). One chokepoint is also what makes the admin-token refusal
  * unskippable (#2696).
  *
- * Precedence, in order:
+ * A hub client with a recorded token fingerprint only accepts a matching env token.
+ * A mismatched env token is ignored with a warning when the existing file matches;
+ * otherwise provisioning refuses it without replacing the file. Admin tokens are still
+ * refused first. This also applies on loopback, where the file holds the hub-issued key.
+ *
+ * Standalone and hub-home precedence, in order:
  *  1. `OPENCODEX_API_AUTH_TOKEN` from the installing shell — still refused outright when it is
  *     an admin token. An operator who deliberately exports a key keeps full control of it.
  *  2. An existing owner-only `service-api-token`. Reusing it is what makes `repair`, a
@@ -180,6 +185,19 @@ export function writeServiceApiTokenFile(): ProvisionedServiceApiToken | null {
       // Last line of defence: every install/repair path funnels through here, so a
       // collision cannot reach disk regardless of which caller ran (#2696).
       assertNotAdminToken(token);
+      const config = loadConfig();
+      const fingerprint = config.runtimeRole === "client" ? config.client?.tokenFingerprint : undefined;
+      if (fingerprint && serviceApiTokenFingerprint(token) !== fingerprint) {
+        const message = "OPENCODEX_API_AUTH_TOKEN ignored: it does not match the hub client's recorded token fingerprint.";
+        const recovery = `${message} Restore the matching hub-issued key or reconnect to the hub before retrying service install/repair.`;
+        const existing = hardenReusedServiceApiToken(value => {
+          assertNotAdminToken(value, process.env, "file");
+          if (serviceApiTokenFingerprint(value) !== fingerprint) throw new Error(recovery);
+        });
+        if (existing.kind !== "present") throw new Error(recovery);
+        console.warn(`${message} Keeping the matching owner-only service token file.`);
+        return { path: serviceApiTokenFilePath(), origin: "file" };
+      }
       const path = persistServiceApiToken(token);
       console.log(`🔐 Data-plane token taken from OPENCODEX_API_AUTH_TOKEN and stored at ${path} (owner-only).`);
       return { path, origin: "env" };

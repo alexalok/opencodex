@@ -7,9 +7,9 @@ import { repoPath } from "../helpers/repo-root";
 
 const script = repoPath("scripts", "ci", "bun-install-frozen.sh");
 const UBUNTU_INSTALL_JOBS = ["test", "test-changed", "storage-policy", "api-usage", "gates"];
-// Trusted runs of the heavy jobs take the lidge self-hosted Ubuntu pool; everything else stays hosted.
+// The heavy Linux jobs must also remain hosted during release qualification.
 const LIDGE_JOBS = new Set(["test", "test-changed", "gates"]);
-const LIDGE_RUNS_ON = "${{ vars.LIDGE_RUNNERS == 'on' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON('[\"OWNER\",\"MEMBER\",\"COLLABORATOR\"]'), github.event.pull_request.author_association)) && fromJSON('[\"self-hosted\",\"linux\",\"x64\",\"lidge\"]') || 'ubuntu-latest' }}";
+const LIDGE_RUNS_ON = "ubuntu-latest";
 const isUbuntu = (runsOn: string | null) => runsOn === "ubuntu-latest" || runsOn === LIDGE_RUNS_ON;
 
 /** Map each job id in ci.yml to its runs-on value and the run lines it contains. */
@@ -333,4 +333,13 @@ describe.skipIf(process.platform === "win32")("bun-install-frozen.sh retry polic
     expect(readFileSync(join(root, "bun.lock"), "utf8")).toBe(lockBefore);
   }, 30_000);
 
+});
+
+test("fork CI has no selectable persistent runner pool", () => {
+  for (const name of LIDGE_JOBS) expect(ciJobs().get(name)!.runsOn).toBe("ubuntu-latest");
+  const workflow = Bun.YAML.parse(readFileSync(repoPath(".github/workflows/ci.yml"), "utf8"));
+  const pick = workflow.jobs["select-windows-runner"].steps.find((step: {id?: string}) => step.id === "pick");
+  expect(pick.env).toBeUndefined();
+  expect(pick.run).not.toContain("self-hosted");
+  expect(pick.run).toContain('runner="windows-latest"');
 });

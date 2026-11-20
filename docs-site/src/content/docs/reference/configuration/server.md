@@ -308,6 +308,13 @@ enters a service definition or argv. A foreground `ocx start` applies the same p
 environment, then `OCX_API_TOKEN_FILE`, then the installed `service-api-token` — so it binds a
 non-loopback hostname without an exported token too.
 
+For a connected hub client (including Remote Link), service install, repair, and update restarts
+check an exported `OPENCODEX_API_AUTH_TOKEN` against the connection's recorded token fingerprint.
+If it differs but the existing `service-api-token` matches, the file is kept and a warning says
+the variable was ignored. If no matching file exists, provisioning stops: restore the matching
+hub-issued key or reconnect to the hub before retrying. No token value is printed. Standalone
+and hub-home installs retain the precedence above; an exported matching client key is accepted.
+
 A **management admin token** is refused in either place it can appear — the environment variable or
 a reused `service-api-token` file — and the message names the remedy for that place: unset the
 variable, or delete the file and run `ocx service repair`. Both checks run before the loopback
@@ -560,11 +567,17 @@ There is no dashboard control for this yet; set it in `config.json` or with
 
 ## Catalog auto-refresh (`catalogAutoRefresh`)
 
-Enabled by default when OpenCodex manages your local Codex client: the section or `enabled`
-may be absent. The proxy refreshes its model catalog every 60 minutes, with one initial refresh
-about three minutes after startup. When the Codex integration is turned off, or the instance
-runs as a hub or beside another live proxy, background refresh runs only with an explicit
-`"enabled": true`, and it never reads Codex sources.
+Enabled by default when OpenCodex manages your local Codex client or runs as a hub:
+the section or `enabled` may be absent. Refresh runs every 60 minutes, with one initial refresh
+about three minutes after startup. A hub without a managed local client discovers native models
+using its stored ChatGPT Pool accounts, without reading the host's native Codex login, probing
+its runtime, or writing its local client catalog/config by default. Explicit `"enabled": true`
+keeps the existing local catalog convergence after discovery. Hub catalog downloads include discovered
+models without writing the host catalog, so connected clients receive them on their next sync. Other instances with the Codex integration
+turned off, or instances beside another live proxy, retain opt-in refresh (`"enabled": true`)
+without reading Codex sources.
+
+Catalog downloads still require an existing persisted catalog; without one, the endpoint returns 404. Automatic discovery does not bootstrap a complete client catalog.
 
 ```json
 {
@@ -577,7 +590,7 @@ runs as a hub or beside another live proxy, background refresh runs only with an
 | `enabled` | `true` | Set to `false` to disable automatic refresh. |
 | `intervalMinutes` | `60` | Refresh cadence; positive values below 15 are clamped to 15. `0` disables refresh. |
 
-Each refresh observes the selected Codex runtime's bundled catalog, then warms authenticated
+For a managed local client, each refresh observes the selected Codex runtime's bundled catalog, then warms authenticated
 Codex model rosters before converging the served list. Source failures use existing evidence
 and retry on a later tick. Cadence and enablement edits take effect on a subsequent tick.
 

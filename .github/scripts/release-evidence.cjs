@@ -21,7 +21,7 @@ const CI_JOBS = Object.freeze([
   'changes', 'select windows runner', 'storage policy', 'api usage', 'gates',
   ...Array.from({length: 5}, (_, i) => `test ${i + 1}/5`),
   ...Array.from({length: 4}, (_, i) => `macos ${i + 1}/4`),
-  'macos control', ...Array.from({length: 11}, (_, i) => `windows ${i + 1}/11`),
+  ...Array.from({length: 11}, (_, i) => `windows ${i + 1}/11`),
   'keyring ubuntu', 'keyring windows', 'keyring macos', 'docker smoke',
   'docs site build', 'structure gate', 'macos widget + bundle', 'desktop shell',
   ...['ubuntu-latest', 'windows-latest', 'macos-latest'].flatMap(os => [
@@ -345,6 +345,11 @@ function createEvidence(rawApi, policies = APPROVED_POLICIES) {
   return { select };
 }
 async function main(args) {
+  if (process.env.GITHUB_REPOSITORY === "alexalok/opencodex" && ["resolve", "check", "service"].includes(args[0])) {
+    const result = await require("./fork-release.cjs").evidence(process.env.FORK_RELEASE_BRANCH, args[1], args[0] === "service" ? "service" : "ci");
+    if (args[0] === "resolve") process.stdout.write(JSON.stringify(result) + "\n");
+    return;
+  }
   if (args[0] === 'service-range' && args.length === 3) {
     process.stdout.write(`${JSON.stringify(serviceRange(args[1], args[2]))}\n`);
     return;
@@ -360,5 +365,5 @@ async function main(args) {
   const result = await evidence.select(args[0] === 'service' ? 'service' : 'ci', args[1]);
   if (args[0] === 'resolve') process.stdout.write(`${JSON.stringify(result)}\n`);
 }
+module.exports = { assertPolicy, CI_JOBS, serviceJobs, validateJobs, createEvidence, pages, validateRun, apiClient, serviceChangeRequired, serviceRange, checkPolicyFiles };
 if (require.main === module) main(process.argv.slice(2)).catch(error => { process.stderr.write(`release evidence: ${error.message}\n`); process.exitCode = 1; });
-module.exports = { CI_JOBS, serviceJobs, validateJobs, createEvidence, pages, validateRun, apiClient, serviceChangeRequired, serviceRange, checkPolicyFiles };

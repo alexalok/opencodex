@@ -169,3 +169,24 @@ describe("auto-review-settings API", () => {
     expect(target.autoReviewOverride).toEqual({ enabled: true, model: "9router/x" });
   });
 });
+
+ test("native reviewer and effort round-trip, partial updates preserve effort, blank clears it", async () => {
+  const target = config();
+  const response = await manage(target, "PUT", { enabled: true, model: "gpt-6-luna", reasoningEffort: "high" });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ model: "gpt-6-luna", reasoningEffort: "high" });
+  expect(JSON.parse(readFileSync(join(home!, "config.json"), "utf8")).autoReviewOverride.reasoningEffort).toBe("high");
+  await manage(target, "PUT", { model: "gpt-6-astra" });
+  expect(await (await manage(target, "GET")).json()).toEqual({ enabled: true, model: "gpt-6-astra", reasoningEffort: "high" });
+  await manage(target, "PUT", { reasoningEffort: "" });
+  expect(target.autoReviewOverride).toEqual({ enabled: true, model: "gpt-6-astra" });
+ });
+
+ test("invalid effort is rejected without changing persisted reviewer settings", async () => {
+  const target = config();
+  await manage(target, "PUT", { enabled: true, model: "gpt-6-luna", reasoningEffort: "high" });
+  for (const reasoningEffort of ["bogus", " high ", null, 7, {}, []]) {
+    expect((await manage(target, "PUT", { reasoningEffort })).status).toBe(400);
+    expect(target.autoReviewOverride?.reasoningEffort).toBe("high");
+  }
+ });

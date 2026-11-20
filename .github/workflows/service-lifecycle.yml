@@ -25,6 +25,10 @@ on:
       - ".github/workflows/release.yml"
   workflow_dispatch:
     inputs:
+      release-branch:
+        description: "Fork only: selected releases/vX.Y.Z branch"
+        required: false
+        type: string
       source_sha:
         description: "Full dev ancestor SHA to test"
         required: true
@@ -39,16 +43,23 @@ concurrency:
 
 jobs:
   validate-source:
+    permissions:
+      contents: read
+      pull-requests: read
     name: validate source
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
       - name: Validate dispatch source
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
           REF: ${{ github.ref }}
           SOURCE_SHA: ${{ github.event.inputs.source_sha }}
+          FORK_RELEASE_BRANCH: ${{ github.event.inputs.release-branch }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -57,6 +68,10 @@ jobs:
             echo '::error::dispatch requires dev and a full lowercase source SHA'
             exit 1
           fi
+          if [ "${GITHUB_REPOSITORY:-}" = alexalok/opencodex ]; then
+            node .github/scripts/fork-release.cjs source "$SOURCE_SHA"
+            exit 0
+          fi
           status="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${SOURCE_SHA}...dev" --jq .status)"
           if [ "$status" != ahead ] && [ "$status" != identical ]; then
             echo '::error::source is not an ancestor of dev'
@@ -64,6 +79,7 @@ jobs:
           fi
 
   linux-systemd:
+    if: (github.repository != 'alexalok/opencodex' || github.event_name != 'workflow_dispatch' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania')))
     name: linux-systemd ${{ github.event.inputs.source_sha }}
     needs: validate-source
     runs-on: ubuntu-latest
@@ -197,7 +213,7 @@ jobs:
     name: macos-launchd ${{ github.event.inputs.source_sha }}
     needs: validate-source
     # Pull requests run the Linux leg only; macOS runs on manual dispatch.
-    if: github.event_name != 'pull_request'
+    if: (github.event_name != 'pull_request' && (vars.OCX_DISABLE_MACOS_CI != 'true' && (github.repository != 'alexalok/opencodex' || github.event_name == 'workflow_dispatch'))) && (github.repository != 'alexalok/opencodex' || github.event_name != 'workflow_dispatch' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania')))
     runs-on: macos-latest
     timeout-minutes: 10
     steps:
@@ -287,7 +303,7 @@ jobs:
     name: windows-schtasks ${{ github.event.inputs.source_sha }}
     needs: validate-source
     # Pull requests run the Linux leg only; Windows runs on manual dispatch.
-    if: github.event_name != 'pull_request'
+    if: (github.event_name != 'pull_request') && (github.repository != 'alexalok/opencodex' || github.event_name != 'workflow_dispatch' || ((github.actor == 'alexalok' || github.actor == 'jack-o-mania') && (github.triggering_actor == 'alexalok' || github.triggering_actor == 'jack-o-mania')))
     runs-on: windows-latest
     timeout-minutes: 10
     steps:

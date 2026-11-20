@@ -266,7 +266,11 @@ describe("docs link targets", () => {
     // D14: install-days and avgDailyActiveInstalls
     expect(guide).toContain("avgDailyActiveInstalls");
     expect(guide).toContain("install-days");
-    // D15: small-cohort protection per day on distinct installs, subtraction risk
+    // Public aggregation stays closed: anonymous identities cannot establish a privacy cohort.
+    expect(guide).toContain("returns **503**");
+    expect(guide).toContain("Cache-Control: no-store");
+    expect(guide).toContain("historical aggregates");
+    // D15: internal cohort algorithm and subtraction risk
     expect(guide).toContain("daily_models");
     expect(guide).toContain("10 distinct\n  installs");
     expect(guide).not.toContain("10 install-days");

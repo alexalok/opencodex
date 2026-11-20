@@ -7,7 +7,7 @@ Deployment is a maintainer step. Nothing in local development or CI deploys this
 ## Endpoints
 
 - `POST /v1/events` — validates `TelemetryPayloadV1` from `src/telemetry/contract.ts`, enforces a 16 KiB streaming body cap and per-report aggregate ceilings, requires `RATE_LIMIT_SALT` (returns HTTP `503` if unset), atomically rate-limits to 120 reports/hour per salted hourly hash of the client key (sized for shared-IP / CGNAT capacity; returns HTTP `429` with `Retry-After`), and deduplicates on `(day, install_day_hash)` while rolling up daily totals, model/provider buckets (with contributing report count `installs`), per-day distinct install counts for each provider and each model family (`daily_provider_installs`, `daily_family_installs`), and error counts (with contributing report count `installs`) atomically in a single conditional D1 batch. Reports are unauthenticated and self-reported; rate limits and per-report bounds limit, but do not prevent, forged submissions.
-- `GET /v1/stats?range=7d|30d|90d|365d` — queries D1 in a single batch and returns `TelemetryStatsV1` cached by canonical range for 300 seconds (`caches.default` plus an in-isolate TTL cache) with `Cache-Control: public, max-age=300` and CORS for `https://opencodex.me` and `http://localhost:4321`. `totals.activeInstalls` and breakdown `installs` represent install-days (sum of daily reporting installs across the range), and `totals.avgDailyActiveInstalls` is `activeInstalls / rangeDays` rounded to 1 decimal.
+- `GET /v1/stats?range=7d|30d|90d|365d` — currently returns **503** with `Cache-Control: no-store`. Anonymous install hashes are client-mintable, so no current or historical aggregate is published or served from cache. Publication requires a separately reviewed identity/provenance design that excludes unauthenticated reports from counts and privacy thresholds; no public shared secret or environment switch enables it. The internal, unpublished statistics builder queries D1 in a single batch and returns `TelemetryStatsV1` cached by canonical range for 300 seconds (`caches.default` plus an in-isolate TTL cache) with internal `Cache-Control: public, max-age=300` metadata; the public hold response instead uses `no-store` and retains allowed-origin CORS. `totals.activeInstalls` and breakdown `installs` represent install-days (sum of daily reporting installs across the range), and `totals.avgDailyActiveInstalls` is `activeInstalls / rangeDays` rounded to 1 decimal.
 - Scheduled cron (`15 * * * *`) — prunes `daily_installs` older than 400 days and every `rate_limits` hourly bucket whose hour began at least 2 hours before the run. The bucket for hour H is deleted by the H+2:15 run, so a salted hash is kept for at most 2 hours 15 minutes after the earliest hit it counts (longer only if a scheduled run is missed).
 
 ## Opt-in public profiles (leaderboard)
@@ -23,15 +23,14 @@ anonymous ones: no install hash, version or platform is stored, and rate-limit k
 - `POST /v1/profiles/me/days` (bearer) — one completed UTC day within the last 7, strictly after the creation day,
   with consistent totals and closed model families (8 KiB), 48 per profile per hour. The first submission for a day
   wins (`{deduplicated}`).
-- `GET /v1/profiles/me` (bearer) — ranks for day, week and month, month family totals and the `hidden` flag; `no-store`.
+- `GET /v1/profiles/me` — held at `503`/`no-store`/`noindex`, even with a valid bearer. This response includes cross-profile ranks, not just private account data; a self-minted profile secret proves ownership, not usage provenance.
 - `DELETE /v1/profiles/me` (bearer) — deletes the profile and every row submitted for it in one batch; an unknown
   secret is `401`.
 - `GET /v1/leaderboard?period=day|week|month&metric=tokens|requests&limit=1..100` and
-  `GET /v1/profiles/by-handle/<handle>` — public, 3000 per client key per hour, `cache-control: public, max-age=60` (no
-  in-process cache, so a hidden profile disappears on the next read at the Worker and within 60 seconds in shared caches),
-  `x-robots-tag: noindex`. Entries carry only rank, handle, display name, avatar, tokens and requests. Ranking is
-  `RANK()` over profiles with a positive total in the window ending on the latest completed UTC day; hidden profiles
-  are excluded everywhere.
+  `GET /v1/profiles/by-handle/<handle>` — held at `503`/`no-store`/`noindex` before DB or cache access,
+  including historical rankings and individual usage. The same hold covers `/v1/stats` and own-profile
+  GET; no caller-supplied token enables publication. Internal ranking algorithms remain testable but
+  are not routed. Re-enabling any usage read requires reviewed non-mintable usage provenance.
 - Bearer and write routes are never CORS-preflighted, so a browser page cannot send a profile secret cross-origin.
 - Pruning: profile rate-limit buckets after 2 hours, day rows after 400 days, profiles that never submitted after 14
   days, and profiles whose last submission is older than 400 days together with their rows.

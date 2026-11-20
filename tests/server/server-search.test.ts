@@ -1091,7 +1091,7 @@ test("the proxy admission secret is never relayed to the search upstream", async
     });
     expect(response.status).toBe(401);
     const json = await response.json() as { error: { message: string } };
-    expect(json.error.message).toContain("admission credentials");
+    expect(json.error.message).toContain("ChatGPT auth");
     expect(captured).toHaveLength(0);
   } finally {
     await server.stop(true);

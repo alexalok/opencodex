@@ -3,6 +3,8 @@ title: Contribuer
 description: Développez opencodex — installation, structure, conventions et ajout d’un fournisseur ou d’un adaptateur.
 ---
 
+For `alexalok/opencodex`, follow the [fork workflow](https://github.com/alexalok/opencodex/blob/dev/AGENTS.md#git-workflow-for-alexalokopencodex): PRs into current `dev`, or versioned backports into `releases/vX.Y.Z`. Do not clone or create `main`. The upstream contribution and promotion guidance below describes `lidge-jun/opencodex`.
+
 ## Configuration
 
 Le développement depuis les sources exige la CLI `bun` dans votre `PATH`. Le paquet npm publié fournit son propre

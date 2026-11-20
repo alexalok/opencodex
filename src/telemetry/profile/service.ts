@@ -164,7 +164,17 @@ export async function connectTelemetryProfile(
     pendingDelete: false,
     revoked: false,
   };
-  writeTelemetryProfileState(state, configDir, now);
+  try {
+    writeTelemetryProfileState(state, configDir, now, { exclusive: true });
+  } catch (error) {
+    // An atomic writer can report failure after publication. Keep a saved credential usable;
+    // unreadable state is ambiguous, so never revoke it based only on the write exception.
+    const saved = readTelemetryProfileFile(configDir);
+    if (!saved.unreadable && saved.state?.secret !== state.secret) {
+      try { await deleteProfile(state.secret, options); } catch { /* retain the original write error */ }
+    }
+    throw error;
+  }
   rankCache = null;
   previewCache = null;
   return toPublicProfileState(state);
@@ -203,6 +213,11 @@ export async function disconnectTelemetryProfile(options: ProfileServiceOptions 
   previewCache = null;
   const result = await deleteProfile(state.secret, options);
   if (result.deleted) {
+    // The response confirms only this secret's remote deletion. Another disconnect may have
+    // completed and allowed a reconnect while this request waited; never remove its credential.
+    const current = readTelemetryProfileFile(configDir);
+    if (current.unreadable) return { status: "deletion_pending", error: "the local profile file owner could not be verified" };
+    if (!current.state || current.state.secret !== state.secret) return { status: "deleted" };
     if (deleteTelemetryProfileFile(configDir)) return { status: "deleted" };
     // The server profile is gone, but the local file (with its now useless secret) is still
     // there: say so instead of reporting a clean disconnect. The loop keeps retrying the removal.

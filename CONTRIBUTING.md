@@ -1,5 +1,7 @@
 # Contributing
 
+For `alexalok/opencodex`, follow the [fork workflow](AGENTS.md#git-workflow-for-alexalokopencodex): current `dev`, PR-only integration, and versioned backports. Do not create or clone `main`. The upstream contribution and promotion guidance below applies to `lidge-jun/opencodex`.
+
 Thanks for helping with opencodex.
 
 - Start with the canonical guide: [Contributing](https://opencodex.me/contributing/)

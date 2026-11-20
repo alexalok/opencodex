@@ -43,6 +43,14 @@ passthrough search bridge. `maxSearchesPerTurn` does not grant extra model sends
 exhausted, that search returns an error result without contacting Anthropic. Helper admission does
 not spend the routed model's final-recovery reserve. Standalone `/v1/alpha/search` keeps its existing behavior.
 
+Codex's standalone search endpoint (`POST /v1/alpha/search`) accepts the same OpenCodex data-plane
+key in `Authorization: Bearer` that authenticates model requests. With the OpenAI provider in Pool
+mode, search uses the selected stored ChatGPT account; an account-qualified model uses only that
+account. OpenCodex never sends the Hub key upstream. The key's provider/model scopes and usage
+attribution still apply. If the selected account is unavailable, search fails without switching to
+another paid search backend. Direct mode continues to require caller-owned ChatGPT credentials;
+the dedicated `X-OpenCodex-API-Key` admission header remains supported.
+
 When Codex requests hosted `web_search` for a non-passthrough routed model, opencodex:
 
 1. **Drops** the hosted `web_search` tool and exposes a synthetic `web_search(query)` function tool

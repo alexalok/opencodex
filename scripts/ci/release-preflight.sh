@@ -65,6 +65,15 @@ if gh release view "$release_tag" >/dev/null 2>&1 && [[ "$resume" != "true" && "
   fail "GitHub Release ${release_tag} already exists. Choose the next unused version."
 fi
 
+# Fork uses reviewed ancestry-scoped history rather than upstream global lineage.
+if [[ "${GITHUB_REPOSITORY:-}" == "alexalok/opencodex" ]]; then
+  [[ "$resume" != true ]] || fail "fork resume requires a separately reviewed receipt policy"
+  node "$repo_root/.github/scripts/fork-release.cjs" history "$SOURCE_SHA" "$RELEASE_VERSION" \
+    || fail "fork release history rejected candidate"
+fi
+
+# The fork publishes GitHub assets only; npm identity and dist-tags are irrelevant.
+if [[ "${GITHUB_REPOSITORY:-}" != "alexalok/opencodex" ]]; then
 # npm. Only an exact version answer counts as present and only E404 counts as absent; anything
 # else is a registry read failure, which warns rather than blocking a release it cannot judge.
 pkg_name="$(node -p "require(process.argv[1]).name" "$repo_root/package.json")"
@@ -95,12 +104,16 @@ case "$npm_state" in
     ;;
 esac
 
+fi
+
 # Cross-channel ordering against the whole tag set: the gate run 35783865160 reached too late.
+fork_scope=""
+if [[ "${GITHUB_REPOSITORY:-}" == "alexalok/opencodex" ]]; then fork_scope="--merged=$SOURCE_SHA"; fi
 allow=""
 if [[ ( "$dry_run" == "true" || "$resume" == "true" ) && -n "$existing_tag_sha" && "$existing_tag_sha" == "$SOURCE_SHA" ]]; then
   allow="--allow-existing-tag-at-head"
 fi
-if ! git tag --list 'v*' | bun "$repo_root/scripts/version-line.ts" assert-releasable "$RELEASE_VERSION" ${allow:+"$allow"}; then
+if ! git tag ${fork_scope:+"$fork_scope"} --list 'v*' | bun "$repo_root/scripts/version-line.ts" assert-releasable "$RELEASE_VERSION" ${allow:+"$allow"}; then
   fail "${RELEASE_VERSION} does not outrank the current tag set"
 fi
 
